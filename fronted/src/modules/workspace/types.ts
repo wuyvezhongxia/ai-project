@@ -18,6 +18,15 @@ export type WorkTask = {
   favorite?: boolean
   scope?: Exclude<TodoScope, 'all'>
   dueCategory?: 'today' | 'week' | 'overdue'
+  projectId?: number
+  ownerId?: number
+  startAt?: string
+  dueAt?: string
+  progress?: number
+  riskLevel?: string
+  taskType?: string
+  description?: string
+  collaborators?: Array<{ userId: number; nickName: string }>
 }
 
 export type RiskTask = {
@@ -35,6 +44,45 @@ export type Subtask = {
   done: boolean
   owner: string
   status?: string
+}
+
+export type TaskCommentView = {
+  id: string
+  content: string
+  userName: string
+  createTime: string
+}
+
+export type AttachmentView = {
+  id: string
+  fileName: string
+  fileUrl: string
+  fileSizeText: string
+  metaText: string
+}
+
+export type ActivityView = {
+  id: string
+  actionType: string
+  actionContent: string
+  userName: string
+  createTime: string
+}
+
+export type RelationView = {
+  id: string
+  relationType: string
+  targetTitle: string
+  targetUrl?: string
+}
+
+export type TaskDetailView = WorkTask & {
+  creatorName: string
+  attachments: AttachmentView[]
+  comments: TaskCommentView[]
+  activities: ActivityView[]
+  relations: RelationView[]
+  subtasks: Subtask[]
 }
 
 export type ProjectCard = {
@@ -69,4 +117,17 @@ export type GanttRow = {
   width: number
   color: string
   note: string
+}
+
+export type WorkloadMember = {
+  userId: number
+  name: string
+  value: number
+  color: string
+  urgentCount: number
+}
+
+export type SelectOptionItem = {
+  label: string
+  value: number
 }

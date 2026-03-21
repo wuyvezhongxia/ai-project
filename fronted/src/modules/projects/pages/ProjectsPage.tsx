@@ -1,27 +1,48 @@
 import { useMemo, useState } from 'react'
-import { Avatar, Button, Card, Progress, Segmented, Space, Tag } from 'antd'
+import { Avatar, Button, Card, Empty, Progress, Segmented, Space, Spin, Tag } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { ganttRowsMap, projectBoardMap, projectCards } from '../../workspace/data/mock'
-import type { ProjectView } from '../../workspace/types'
+import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
+import {
+  useProjectGanttQuery,
+  useProjectsQuery,
+  useProjectStatisticsQuery,
+  useProjectTasksQuery,
+} from '../../workspace/services/workspace.queries'
 
 function ProjectsPage() {
   const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
-  const [activeProjectId, setActiveProjectId] = useState(projectCards[0].id)
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
   const [projectView, setProjectView] = useState<ProjectView>('kanban')
+  const { data: projectCards = [], isLoading: loadingProjects } = useProjectsQuery(projectStatusTab)
+  const [activeProjectId, setActiveProjectId] = useState('')
+  const resolvedActiveProjectId = projectCards.some((project) => project.id === activeProjectId)
+    ? activeProjectId
+    : (projectCards[0]?.id ?? '')
 
-  const filteredProjects = useMemo(() => {
-    if (projectStatusTab === '全部项目') return projectCards
-    if (projectStatusTab === '进行中') return projectCards.filter((item) => item.status === '进行中')
-    return projectCards.filter((item) => item.status === '已归档')
-  }, [projectStatusTab])
+  const activeProject = useMemo(() => {
+    if (!projectCards.length) return null
+    return projectCards.find((project) => project.id === resolvedActiveProjectId) ?? projectCards[0]
+  }, [projectCards, resolvedActiveProjectId])
 
-  const activeProject = projectCards.find((project) => project.id === activeProjectId) ?? projectCards[0]
-  const activeProjectBoard = projectBoardMap[activeProject.id] ?? []
-  const activeGanttRows = ganttRowsMap[activeProject.id] ?? []
+  const { data: activeProjectBoardData = [], isLoading: loadingBoard } = useProjectTasksQuery(activeProject?.id ?? '', 'kanban')
+  const { data: activeProjectListData = [], isLoading: loadingList } = useProjectTasksQuery(activeProject?.id ?? '', 'list')
+  const { data: activeGanttRows = [], isLoading: loadingGantt } = useProjectGanttQuery(activeProject?.id ?? '')
+  const { data: projectStats } = useProjectStatisticsQuery(activeProject?.id ?? '')
+  const activeProjectBoard = activeProjectBoardData as BoardColumn[]
+  const activeProjectList = activeProjectListData as WorkTask[]
+
+  if (loadingProjects && !projectCards.length) {
+    return (
+      <section className="page-stack">
+        <Card className="glass-card">
+          <Spin />
+        </Card>
+      </section>
+    )
+  }
 
   return (
     <section className="page-stack">
@@ -42,19 +63,19 @@ function ProjectsPage() {
           <Space wrap>
             <Button className="ghost-button">日筛选</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={openTaskModal}>
-              新建项目
+              新建任务
             </Button>
           </Space>
         </div>
       </Card>
 
       <div className="project-card-grid">
-        {filteredProjects.map((project) => (
+        {projectCards.map((project) => (
           <button
             key={project.id}
             type="button"
             className={
-              project.id === activeProjectId
+              project.id === resolvedActiveProjectId
                 ? 'project-summary-card project-summary-card-active'
                 : 'project-summary-card'
             }
@@ -106,124 +127,135 @@ function ProjectsPage() {
         ))}
       </div>
 
-      <Card
-        className="glass-card"
-        title={`${activeProject.name} · 任务视图`}
-        extra={
-          <Segmented
-            value={projectView}
-            onChange={(value) => setProjectView(value as ProjectView)}
-            options={[
-              { label: '列表', value: 'list' },
-              { label: '看板', value: 'kanban' },
-              { label: '甘特图', value: 'gantt' },
-              { label: '统计', value: 'stats' },
-            ]}
-          />
-        }
-      >
-        {projectView === 'kanban' ? (
-          <div className="kanban-board">
-            {activeProjectBoard.map((column) => (
-              <div key={column.key} className="kanban-column">
-                <div className="kanban-column-header">
-                  <Space>
-                    <span className="kanban-dot" style={{ background: column.dotColor }} />
-                    <span>{column.title}</span>
-                    <Tag bordered={false}>{column.count}</Tag>
-                  </Space>
-                </div>
-                <div className="kanban-column-body">
-                  {column.tasks.length ? (
-                    column.tasks.map((task) => (
-                      <button key={task.id} className="board-task-card" type="button" onClick={() => openTaskDetail(task.id)}>
-                        <div className="board-task-title">{task.title}</div>
-                        <Space wrap className="task-meta">
-                          <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
-                          <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
-                        </Space>
-                        <div className="board-task-footer">
-                          <span>{task.owner}</span>
-                          <Avatar size="small">{task.assignee}</Avatar>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="empty-board-hint">当前列暂无任务</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
+      {!projectCards.length ? (
+        <Card className="glass-card">
+          <Empty description="当前没有可展示的项目" />
+        </Card>
+      ) : null}
 
-        {projectView === 'list' ? (
-          <div className="todo-list-card">
-            <div className="todo-list-header todo-list-header-project">
-              <span>任务名称</span>
-              <span>状态</span>
-              <span>优先级</span>
-              <span>截止时间</span>
-              <span>负责人</span>
-            </div>
-            {activeProjectBoard.flatMap((column) => column.tasks).map((task) => (
-              <button
-                key={task.id}
-                type="button"
-                className="todo-list-row todo-list-row-button todo-list-row-project"
-                onClick={() => openTaskDetail(task.id)}
-              >
-                <div className="todo-cell-main">
-                  <div className="todo-row-title">{task.title}</div>
-                  <div className="muted-text">{task.project}</div>
-                </div>
-                <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
-                <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
-                <span>{task.dueText}</span>
-                <Space>
-                  <Avatar size="small">{task.assignee}</Avatar>
-                  <span>{task.owner}</span>
-                </Space>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {projectView === 'gantt' ? (
-          <div className="gantt-grid">
-            {activeGanttRows.map((row) => (
-              <div key={row.label} className="gantt-row">
-                <div className="gantt-label">{row.label}</div>
-                <div className="gantt-track">
-                  <div
-                    className="gantt-bar"
-                    style={{ marginLeft: `${row.start}%`, width: `${row.width}%`, background: row.color }}
-                  >
-                    {row.note}
+      {activeProject ? (
+        <Card
+          className="glass-card"
+          title={`${activeProject.name} · 任务视图`}
+          extra={
+            <Segmented
+              value={projectView}
+              onChange={(value) => setProjectView(value as ProjectView)}
+              options={[
+                { label: '列表', value: 'list' },
+                { label: '看板', value: 'kanban' },
+                { label: '甘特图', value: 'gantt' },
+                { label: '统计', value: 'stats' },
+              ]}
+            />
+          }
+        >
+          {projectView === 'kanban' ? (
+            <div className="kanban-board">
+              {loadingBoard ? <Spin /> : null}
+              {activeProjectBoard.map((column) => (
+                <div key={column.key} className="kanban-column">
+                  <div className="kanban-column-header">
+                    <Space>
+                      <span className="kanban-dot" style={{ background: column.dotColor }} />
+                      <span>{column.title}</span>
+                      <Tag bordered={false}>{column.count}</Tag>
+                    </Space>
+                  </div>
+                  <div className="kanban-column-body">
+                    {column.tasks.length ? (
+                      column.tasks.map((task) => (
+                        <button key={task.id} className="board-task-card" type="button" onClick={() => openTaskDetail(task.id)}>
+                          <div className="board-task-title">{task.title}</div>
+                          <Space wrap className="task-meta">
+                            <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
+                            <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
+                          </Space>
+                          <div className="board-task-footer">
+                            <span>{task.owner}</span>
+                            <Avatar size="small">{task.assignee}</Avatar>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="empty-board-hint">当前列暂无任务</div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
+              ))}
+            </div>
+          ) : null}
 
-        {projectView === 'stats' ? (
-          <div className="project-stats-grid">
-            <Card className="attachment-card" bordered={false}>
-              <div className="stat-card-title">任务完成度</div>
-              <div className="stat-card-value">{activeProject.progress}%</div>
-            </Card>
-            <Card className="attachment-card" bordered={false}>
-              <div className="stat-card-title">风险任务</div>
-              <div className="stat-card-value">{activeProject.riskCount}</div>
-            </Card>
-            <Card className="attachment-card" bordered={false}>
-              <div className="stat-card-title">延期任务</div>
-              <div className="stat-card-value">{activeProject.delayCount}</div>
-            </Card>
-          </div>
-        ) : null}
-      </Card>
+          {projectView === 'list' ? (
+            <div className="todo-list-card">
+              {loadingList ? <Spin /> : null}
+              <div className="todo-list-header todo-list-header-project">
+                <span>任务名称</span>
+                <span>状态</span>
+                <span>优先级</span>
+                <span>截止时间</span>
+                <span>负责人</span>
+              </div>
+              {activeProjectList.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  className="todo-list-row todo-list-row-button todo-list-row-project"
+                  onClick={() => openTaskDetail(task.id)}
+                >
+                  <div className="todo-cell-main">
+                    <div className="todo-row-title">{task.title}</div>
+                    <div className="muted-text">{task.project}</div>
+                  </div>
+                  <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
+                  <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
+                  <span>{task.dueText}</span>
+                  <Space>
+                    <Avatar size="small">{task.owner.slice(0, 1)}</Avatar>
+                    <span>{task.owner}</span>
+                  </Space>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {projectView === 'gantt' ? (
+            <div className="gantt-grid">
+              {loadingGantt ? <Spin /> : null}
+              {activeGanttRows.map((row) => (
+                <div key={row.label} className="gantt-row">
+                  <div className="gantt-label">{row.label}</div>
+                  <div className="gantt-track">
+                    <div
+                      className="gantt-bar"
+                      style={{ marginLeft: `${row.start}%`, width: `${row.width}%`, background: row.color }}
+                    >
+                      {row.note}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {projectView === 'stats' ? (
+            <div className="project-stats-grid">
+              <Card className="attachment-card" bordered={false}>
+                <div className="stat-card-title">任务完成度</div>
+                <div className="stat-card-value">{Math.round(projectStats?.completionRate ?? activeProject.progress)}%</div>
+              </Card>
+              <Card className="attachment-card" bordered={false}>
+                <div className="stat-card-title">风险任务</div>
+                <div className="stat-card-value">{projectStats?.delayedTasks ?? activeProject.riskCount}</div>
+              </Card>
+              <Card className="attachment-card" bordered={false}>
+                <div className="stat-card-title">延期任务</div>
+                <div className="stat-card-value">{projectStats?.overdueTasks ?? activeProject.delayCount}</div>
+              </Card>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
     </section>
   )
 }

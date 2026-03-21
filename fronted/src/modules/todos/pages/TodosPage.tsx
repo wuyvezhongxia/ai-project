@@ -3,13 +3,28 @@ import { AppstoreOutlined, BarsOutlined, DeleteOutlined, FilterOutlined, PlusOut
 import { Avatar, Button, Card, Modal, Segmented, Select, Space, Tag } from 'antd'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import type { TodoScope, TodoView } from '../../workspace/types'
-import { getPriorityColor, getStatusColor, toBoardTask } from '../../workspace/utils/task-ui'
+import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
+import { useDeleteTaskMutation, useTodoKanbanQuery, useTodoListQuery } from '../../workspace/services/workspace.queries'
+
+const statusValueMap: Record<string, string> = {
+  待开始: '0',
+  进行中: '1',
+  待审核: '2',
+  已完成: '3',
+  延期: '4',
+}
+
+const prioritySortMap: Record<string, number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+}
 
 function TodosPage() {
   const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
-  const todoTasks = useWorkspaceStore((state) => state.todoTasks)
-  const deleteTodoTask = useWorkspaceStore((state) => state.deleteTodoTask)
+  const deleteTaskMutation = useDeleteTaskMutation()
 
   const [todoScope, setTodoScope] = useState<TodoScope>('all')
   const [todoView, setTodoView] = useState<TodoView>('list')
@@ -17,61 +32,49 @@ function TodosPage() {
   const [todoStatusFilter, setTodoStatusFilter] = useState<string>('all')
   const [todoSort, setTodoSort] = useState<string>('截止时间')
 
-  const filteredTodoTasks = useMemo(() => {
-    let tasks = [...todoTasks]
-
-    if (todoScope !== 'all') {
-      tasks = tasks.filter((task) => task.scope === todoScope)
-    }
+  const baseParams = useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('scope', todoScope)
 
     if (todoProjectFilter !== 'all') {
-      tasks = tasks.filter((task) => task.project === todoProjectFilter)
+      params.set('projectId', todoProjectFilter)
     }
 
     if (todoStatusFilter !== 'all') {
-      tasks = tasks.filter((task) => task.status === todoStatusFilter)
+      params.set('status', statusValueMap[todoStatusFilter])
     }
 
+    return params
+  }, [todoProjectFilter, todoScope, todoStatusFilter])
+
+  const listParams = useMemo(() => {
+    const params = new URLSearchParams(baseParams)
+    params.set('view', 'list')
+    return params
+  }, [baseParams])
+
+  const kanbanParams = useMemo(() => {
+    const params = new URLSearchParams(baseParams)
+    params.set('view', 'kanban')
+    return params
+  }, [baseParams])
+
+  const { data: todoTasks = [], isLoading: loadingList } = useTodoListQuery(listParams)
+  const { data: todoBoardColumns = [], isLoading: loadingBoard } = useTodoKanbanQuery(kanbanParams)
+
+  const filteredTodoTasks = useMemo(() => {
+    const tasks = [...todoTasks]
+
     if (todoSort === '优先级') {
-      tasks.sort((a, b) => a.priority.localeCompare(b.priority))
+      tasks.sort((a, b) => prioritySortMap[a.priority] - prioritySortMap[b.priority])
     } else if (todoSort === '任务名称') {
       tasks.sort((a, b) => a.title.localeCompare(b.title))
     } else {
-      tasks.sort((a, b) => a.dueText.localeCompare(b.dueText))
+      tasks.sort((a, b) => (a.dueAt ?? '').localeCompare(b.dueAt ?? ''))
     }
 
     return tasks
-  }, [todoProjectFilter, todoScope, todoSort, todoStatusFilter, todoTasks])
-
-  const todoBoardColumns = useMemo(
-    () => [
-      {
-        key: 'todo-board',
-        title: '待开始',
-        dotColor: '#8a92ff',
-        tasks: filteredTodoTasks.filter((task) => task.status === '待开始').map(toBoardTask),
-      },
-      {
-        key: 'doing-board',
-        title: '进行中',
-        dotColor: '#5b79ff',
-        tasks: filteredTodoTasks.filter((task) => task.status === '进行中').map(toBoardTask),
-      },
-      {
-        key: 'review-board',
-        title: '待审核',
-        dotColor: '#f7c44b',
-        tasks: filteredTodoTasks.filter((task) => task.status === '待审核').map(toBoardTask),
-      },
-      {
-        key: 'done-board',
-        title: '已完成',
-        dotColor: '#22d7a8',
-        tasks: filteredTodoTasks.filter((task) => task.status === '已完成').map(toBoardTask),
-      },
-    ],
-    [filteredTodoTasks],
-  )
+  }, [todoSort, todoTasks])
 
   const handleDeleteTodo = (taskId: string) => {
     Modal.confirm({
@@ -80,7 +83,7 @@ function TodosPage() {
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
-      onOk: () => deleteTodoTask(taskId),
+      onOk: () => deleteTaskMutation.mutateAsync(taskId),
     })
   }
 
@@ -128,9 +131,9 @@ function TodosPage() {
               onChange={setTodoProjectFilter}
               options={[
                 { label: '全部项目', value: 'all' },
-                ...Array.from(new Set(todoTasks.map((task) => task.project))).map((project) => ({
+                ...Array.from(new Map(todoTasks.filter((task) => task.projectId).map((task) => [task.projectId, task.project])).entries()).map(([projectId, project]) => ({
                   label: project,
-                  value: project,
+                  value: String(projectId),
                 })),
               ]}
             />
@@ -174,6 +177,7 @@ function TodosPage() {
           extra={<Tag color="processing">列表视图</Tag>}
         >
           <div className="todo-list-card">
+            {loadingList ? <div className="muted-text">正在加载待办...</div> : null}
             <div className="todo-list-header">
               <span>任务名称</span>
               <span>所属项目</span>
@@ -215,6 +219,7 @@ function TodosPage() {
       ) : (
         <Card className="glass-card" title="待办看板" extra={<Tag color="processing">看板视图</Tag>}>
           <div className="kanban-board">
+            {loadingBoard ? <div className="muted-text">正在加载看板...</div> : null}
             {todoBoardColumns.map((column) => (
               <div key={column.key} className="kanban-column">
                 <div className="kanban-column-header">

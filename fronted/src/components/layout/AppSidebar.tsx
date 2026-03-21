@@ -1,6 +1,7 @@
 import { Avatar } from 'antd'
 import { NavLink } from 'react-router-dom'
 import { navItems } from '../../modules/workspace/data/mock'
+import { useAuthContextQuery } from '../../modules/workspace/services/workspace.queries'
 
 const routeMap = {
   dashboard: '/',
@@ -9,6 +10,8 @@ const routeMap = {
 } as const
 
 function AppSidebar() {
+  const { data: authContext } = useAuthContextQuery()
+
   return (
     <aside className="app-sidebar">
       <div className="sidebar-top">
@@ -43,9 +46,9 @@ function AppSidebar() {
       </div>
 
       <div className="sidebar-user">
-        <Avatar size={36}>张</Avatar>
+        <Avatar size={36}>{authContext?.nickName?.slice(0, 1) ?? '张'}</Avatar>
         <div>
-          <div className="sidebar-user-name">张小明</div>
+          <div className="sidebar-user-name">{authContext?.nickName ?? '张小明'}</div>
           <div className="sidebar-user-role">产品经理 · Admin</div>
         </div>
       </div>
