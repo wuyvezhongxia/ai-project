@@ -22,12 +22,14 @@ Thumbs.db
 .vscode/
 .idea/
 
-# frontend build
-frontend/dist/
-frontend/node_modules/
+# fronted build
+fronted/dist/
+fronted/node_modules/
 
 # backend build
 backend/dist/
 backend/node_modules/
 
 docs/
+
+.pnpm-store/
