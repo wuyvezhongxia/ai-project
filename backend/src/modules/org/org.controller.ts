@@ -1,9 +1,11 @@
 import type { Response } from "express";
+import { z } from "zod";
 
-import { db } from "../../common/data-store";
+import { toDbId } from "../../common/db-values";
+import { toDeptProfile, toTenantProfile, toUserProfile } from "../../common/db-mappers";
+import { prisma } from "../../common/prisma";
 import { AppError, ok, parseParams, parseQuery } from "../../common/http";
 import type { AuthedRequest } from "../../common/types";
-import { z } from "zod";
 
 const userQuerySchema = z.object({
   keyword: z.string().optional(),
@@ -13,60 +15,69 @@ const idParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-export const getUserOptions = (req: AuthedRequest, res: Response) => {
+export const getUserOptions = async (req: AuthedRequest, res: Response) => {
   const query = parseQuery(userQuerySchema, req.query);
 
-  const users = db.users.filter((item) => {
-    if (item.tenantId !== req.ctx.tenantId || item.status !== "0" || item.delFlag !== "0") {
-      return false;
-    }
-
-    if (!query.keyword) {
-      return true;
-    }
-
-    return item.nickName.includes(query.keyword) || item.userName.includes(query.keyword);
+  const rows = await prisma.user.findMany({
+    where: {
+      tenantId: req.ctx.tenantId,
+      status: "0",
+      delFlag: "0",
+      ...(query.keyword
+        ? {
+            OR: [
+              { nickName: { contains: query.keyword } },
+              { userName: { contains: query.keyword } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: { userId: "asc" },
   });
 
   ok(
     res,
-    users.map((item) => ({
-      userId: item.userId,
+    rows.map((item) => ({
+      userId: String(item.userId),
       userName: item.userName,
       nickName: item.nickName,
-      deptId: item.deptId,
+      deptId: item.deptId == null ? undefined : String(item.deptId),
     })),
   );
 };
 
-export const getDeptTree = (req: AuthedRequest, res: Response) => {
-  const tenantDepts = db.depts.filter((item) => item.tenantId === req.ctx.tenantId);
-  const result = tenantDepts.map((dept) => ({
+export const getDeptTree = async (req: AuthedRequest, res: Response) => {
+  const tenantDepts = await prisma.dept.findMany({
+    where: { tenantId: req.ctx.tenantId },
+    orderBy: { deptId: "asc" },
+  });
+  const mapped = tenantDepts.map(toDeptProfile);
+  const result = mapped.map((dept) => ({
     ...dept,
-    children: tenantDepts.filter((child) => child.parentId === dept.deptId),
+    children: mapped.filter((child) => child.parentId === dept.deptId),
   }));
 
   ok(res, result.filter((item) => item.parentId === null));
 };
 
-export const getUserDetail = (req: AuthedRequest, res: Response) => {
+export const getUserDetail = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  const user = db.users.find(
-    (item) => item.userId === params.id && item.tenantId === req.ctx.tenantId && item.delFlag === "0",
-  );
+  const row = await prisma.user.findFirst({
+    where: { userId: toDbId(params.id), tenantId: req.ctx.tenantId, delFlag: "0" },
+  });
 
-  if (!user) {
+  if (!row) {
     throw new AppError("User not found", 404);
   }
 
-  ok(res, user);
+  ok(res, toUserProfile(row));
 };
 
-export const getCurrentTenant = (req: AuthedRequest, res: Response) => {
-  const tenant = db.tenants.find((item) => item.tenantId === req.ctx.tenantId);
-  if (!tenant) {
+export const getCurrentTenant = async (req: AuthedRequest, res: Response) => {
+  const row = await prisma.tenant.findFirst({ where: { tenantId: req.ctx.tenantId } });
+  if (!row) {
     throw new AppError("Tenant not found", 404);
   }
 
-  ok(res, tenant);
+  ok(res, toTenantProfile(row));
 };

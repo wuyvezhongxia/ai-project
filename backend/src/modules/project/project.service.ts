@@ -1,8 +1,10 @@
 import { z } from "zod";
 
-import { db } from "../../common/data-store";
+import { toDbId } from "../../common/db-values";
+import { toProject, toProjectMember, toTag, toTask, toUserProfile } from "../../common/db-mappers";
+import { prisma } from "../../common/prisma";
 import { AppError } from "../../common/http";
-import type { AuthContext, Project, ProjectMember, Task } from "../../common/types";
+import type { AuthContext, Project, ProjectMember } from "../../common/types";
 import {
   addMembersSchema,
   createProjectSchema,
@@ -15,12 +17,12 @@ type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
 type AddMembersInput = z.infer<typeof addMembersSchema>;
 
-const now = () => new Date().toISOString();
+const now = () => new Date();
 
-const getActiveUser = (tenantId: string, userId: number) => {
-  const user = db.users.find(
-    (item) => item.userId === userId && item.tenantId === tenantId && item.status === "0" && item.delFlag === "0",
-  );
+const getActiveUser = async (tenantId: string, userId: string) => {
+  const user = await prisma.user.findFirst({
+    where: { userId: toDbId(userId), tenantId, status: "0", delFlag: "0" },
+  });
   if (!user) {
     throw new AppError(`User ${userId} not found or disabled`, 400);
   }
@@ -28,277 +30,329 @@ const getActiveUser = (tenantId: string, userId: number) => {
   return user;
 };
 
-const getProjectOrThrow = (tenantId: string, id: number) => {
-  const project = db.projects.find((item) => item.id === id && item.tenantId === tenantId && item.delFlag === "0");
-  if (!project) {
+const getProjectOrThrow = async (tenantId: string, id: string) => {
+  const row = await prisma.project.findFirst({
+    where: { id: toDbId(id), tenantId, delFlag: "0" },
+  });
+  if (!row) {
     throw new AppError("Project not found", 404);
   }
 
-  return project;
+  return row;
 };
 
 const ensureProjectManager = (ctx: AuthContext, project: Project) => {
-  if (project.ownerUserId === ctx.userId || ctx.roleIds.includes(1)) {
+  if (project.ownerUserId === ctx.userId || ctx.roleIds.includes("1")) {
     return;
   }
 
   throw new AppError("No permission to manage project", 403);
 };
 
-const projectMembers = (tenantId: string, projectId: number) =>
-  db.projectMembers.filter((item) => item.tenantId === tenantId && item.projectId === projectId && item.delFlag === "0");
+const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>>) => {
+  const project = toProject(row);
+  const [owner, members, tasks, tagRels] = await Promise.all([
+    prisma.user.findFirst({ where: { userId: row.ownerUserId } }),
+    prisma.projectMember.findMany({
+      where: { tenantId: row.tenantId, projectId: row.id, delFlag: "0" },
+    }),
+    prisma.task.findMany({
+      where: { tenantId: row.tenantId, projectId: row.id, delFlag: "0" },
+    }),
+    prisma.projectTagRel.findMany({
+      where: { tenantId: row.tenantId, projectId: row.id },
+    }),
+  ]);
 
-const projectTasks = (tenantId: string, projectId: number) =>
-  db.tasks.filter((item) => item.tenantId === tenantId && item.projectId === projectId && item.delFlag === "0");
-
-const decorateProject = (project: Project) => {
-  const owner = db.users.find((item) => item.userId === project.ownerUserId);
-  const members = projectMembers(project.tenantId, project.id);
-  const tasks = projectTasks(project.tenantId, project.id);
-  const tags = db.projectTagRels
-    .filter((item) => item.projectId === project.id && item.tenantId === project.tenantId)
-    .map((rel) => db.tags.find((tag) => tag.id === rel.tagId && tag.delFlag === "0"))
-    .filter(Boolean);
+  const tagIds = tagRels.map((r) => r.tagId);
+  const tagRows =
+    tagIds.length > 0
+      ? await prisma.tag.findMany({
+          where: { id: { in: tagIds }, delFlag: "0" },
+        })
+      : [];
 
   return {
     ...project,
-    owner,
+    owner: owner ? toUserProfile(owner) : undefined,
     membersCount: members.length,
     taskCount: tasks.length,
     completedTaskCount: tasks.filter((item) => item.status === "3").length,
-    tags,
+    tags: tagRows.map(toTag),
   };
 };
 
 export const projectService = {
-  list(ctx: AuthContext, query: ProjectListQuery) {
-    const joinedProjectIds = new Set(
-      db.projectMembers
-        .filter((item) => item.tenantId === ctx.tenantId && item.userId === ctx.userId && item.delFlag === "0")
-        .map((item) => item.projectId),
-    );
+  async list(ctx: AuthContext, query: ProjectListQuery) {
+    const memberRows = await prisma.projectMember.findMany({
+      where: { tenantId: ctx.tenantId, userId: toDbId(ctx.userId), delFlag: "0" },
+      select: { projectId: true },
+    });
+    const joinedProjectIds = new Set(memberRows.map((m) => m.projectId));
 
-    return db.projects
-      .filter((item) => {
-        if (item.tenantId !== ctx.tenantId || item.delFlag !== "0") {
-          return false;
-        }
-
-        if (query.keyword && !item.projectName.includes(query.keyword)) {
-          return false;
-        }
-
-        if (query.status && item.status !== query.status) {
-          return false;
-        }
-
-        if (query.ownerUserId && item.ownerUserId !== query.ownerUserId) {
-          return false;
-        }
-
-        if (query.creatorUserId && item.createBy !== query.creatorUserId) {
-          return false;
-        }
-
-        if (query.joinedOnly === "true" && !joinedProjectIds.has(item.id)) {
-          return false;
-        }
-
-        return true;
-      })
-      .map(decorateProject);
-  },
-
-  create(ctx: AuthContext, input: CreateProjectInput) {
-    const owner = getActiveUser(ctx.tenantId, input.ownerUserId);
-    const createdAt = now();
-    const project: Project = {
-      id: db.nextId("project"),
-      tenantId: ctx.tenantId,
-      projectCode: input.projectCode,
-      projectName: input.projectName,
-      projectDesc: input.projectDesc,
-      ownerUserId: input.ownerUserId,
-      ownerDeptId: owner.deptId,
-      status: "0",
-      priority: input.priority,
-      startTime: input.startTime,
-      endTime: input.endTime,
-      progress: 0,
-      visibility: input.visibility ?? "1",
-      createDept: ctx.deptId,
-      createBy: ctx.userId,
-      createTime: createdAt,
-      delFlag: "0",
-    };
-
-    db.projects.push(project);
-
-    const memberUserIds = Array.from(new Set([input.ownerUserId, ...input.memberUserIds]));
-    memberUserIds.forEach((userId) => {
-      const user = getActiveUser(ctx.tenantId, userId);
-      const member: ProjectMember = {
-        id: db.nextId("projectMember"),
+    const rows = await prisma.project.findMany({
+      where: {
         tenantId: ctx.tenantId,
-        projectId: project.id,
-        userId,
-        deptId: user.deptId,
-        roleType: userId === input.ownerUserId ? "owner" : "member",
-        joinType: userId === ctx.userId ? "create" : "invite",
-        createBy: ctx.userId,
-        createTime: createdAt,
         delFlag: "0",
-      };
-      db.projectMembers.push(member);
+        ...(query.keyword ? { projectName: { contains: query.keyword } } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.ownerUserId !== undefined ? { ownerUserId: toDbId(query.ownerUserId) } : {}),
+        ...(query.creatorUserId !== undefined ? { createBy: toDbId(query.creatorUserId) } : {}),
+        ...(query.joinedOnly === "true" ? { id: { in: [...joinedProjectIds] } } : {}),
+      },
+      orderBy: { id: "desc" },
     });
 
-    input.tagIds.forEach((tagId: number) => {
-      db.projectTagRels.push({
-        id: db.nextId("projectTagRel"),
-        tenantId: ctx.tenantId,
-        projectId: project.id,
-        tagId,
-        createBy: ctx.userId,
-        createTime: createdAt,
+    const filtered = query.joinedOnly === "true" && joinedProjectIds.size === 0 ? [] : rows;
+
+    const decorated = await Promise.all(filtered.map((r) => decorateProject(r)));
+    return decorated;
+  },
+
+  async create(ctx: AuthContext, input: CreateProjectInput) {
+    const owner = await getActiveUser(ctx.tenantId, input.ownerUserId);
+    const createdAt = now();
+
+    const project = await prisma.$transaction(async (tx) => {
+      const p = await tx.project.create({
+        data: {
+          tenantId: ctx.tenantId,
+          projectCode: input.projectCode,
+          projectName: input.projectName,
+          projectDesc: input.projectDesc,
+          ownerUserId: toDbId(input.ownerUserId),
+          ownerDeptId: owner.deptId,
+          status: "0",
+          priority: input.priority,
+          startTime: input.startTime ? new Date(input.startTime) : null,
+          endTime: input.endTime ? new Date(input.endTime) : null,
+          progress: "0",
+          visibility: input.visibility ?? "1",
+          createDept: ctx.deptId ? toDbId(ctx.deptId) : null,
+          createBy: toDbId(ctx.userId),
+          createTime: createdAt,
+          delFlag: "0",
+        },
       });
+
+      const memberUserIds = Array.from(new Set([input.ownerUserId, ...input.memberUserIds]));
+      for (const userId of memberUserIds) {
+        const user = await getActiveUser(ctx.tenantId, userId);
+        await tx.projectMember.create({
+          data: {
+            tenantId: ctx.tenantId,
+            projectId: p.id,
+            userId: toDbId(userId),
+            deptId: user.deptId,
+            roleType: userId === input.ownerUserId ? "owner" : "member",
+            joinType: userId === ctx.userId ? "create" : "invite",
+            createBy: toDbId(ctx.userId),
+            createTime: createdAt,
+            delFlag: "0",
+          },
+        });
+      }
+
+      for (const tagId of input.tagIds) {
+        await tx.projectTagRel.create({
+          data: {
+            tenantId: ctx.tenantId,
+            projectId: p.id,
+            tagId: toDbId(tagId),
+            createBy: toDbId(ctx.userId),
+            createTime: createdAt,
+          },
+        });
+      }
+
+      return p;
     });
 
     return decorateProject(project);
   },
 
-  detail(ctx: AuthContext, id: number) {
-    const project = getProjectOrThrow(ctx.tenantId, id);
-    const tasks = projectTasks(ctx.tenantId, id);
+  async detail(ctx: AuthContext, id: string) {
+    const row = await getProjectOrThrow(ctx.tenantId, id);
+    const tasks = await prisma.task.findMany({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(id), delFlag: "0" },
+    });
 
+    const base = await decorateProject(row);
     return {
-      ...decorateProject(project),
+      ...base,
       statistics: {
         totalTasks: tasks.length,
         completedTasks: tasks.filter((item) => item.status === "3").length,
-        overdueTasks: tasks.filter((item) => item.status !== "3" && item.dueTime && new Date(item.dueTime) < new Date()).length,
-        progress: tasks.length === 0 ? 0 : Number(((tasks.filter((item) => item.status === "3").length / tasks.length) * 100).toFixed(2)),
+        overdueTasks: tasks.filter((item) => item.status !== "3" && item.dueTime && item.dueTime < new Date()).length,
+        progress:
+          tasks.length === 0
+            ? 0
+            : Number(((tasks.filter((item) => item.status === "3").length / tasks.length) * 100).toFixed(2)),
       },
     };
   },
 
-  update(ctx: AuthContext, id: number, input: UpdateProjectInput) {
-    const project = getProjectOrThrow(ctx.tenantId, id);
+  async update(ctx: AuthContext, id: string, input: UpdateProjectInput) {
+    const row = await getProjectOrThrow(ctx.tenantId, id);
+    const project = toProject(row);
     ensureProjectManager(ctx, project);
 
+    let ownerDeptId = row.ownerDeptId;
+    let ownerUserId = String(row.ownerUserId);
     if (input.ownerUserId) {
-      const owner = getActiveUser(ctx.tenantId, input.ownerUserId);
-      project.ownerUserId = input.ownerUserId;
-      project.ownerDeptId = owner.deptId;
+      const owner = await getActiveUser(ctx.tenantId, input.ownerUserId);
+      ownerUserId = input.ownerUserId;
+      ownerDeptId = owner.deptId;
     }
 
-    Object.assign(project, {
-      projectCode: input.projectCode ?? project.projectCode,
-      projectName: input.projectName ?? project.projectName,
-      projectDesc: input.projectDesc ?? project.projectDesc,
-      priority: input.priority ?? project.priority,
-      startTime: input.startTime ?? project.startTime,
-      endTime: input.endTime ?? project.endTime,
-      visibility: input.visibility ?? project.visibility,
-      status: input.status ?? project.status,
-      updateBy: ctx.userId,
-      updateTime: now(),
+    const updated = await prisma.project.update({
+      where: { id: toDbId(id) },
+      data: {
+        ownerUserId: toDbId(ownerUserId),
+        ownerDeptId,
+        projectCode: input.projectCode ?? row.projectCode,
+        projectName: input.projectName ?? row.projectName,
+        projectDesc: input.projectDesc ?? row.projectDesc,
+        priority: input.priority ?? row.priority,
+        startTime: input.startTime !== undefined ? (input.startTime ? new Date(input.startTime) : null) : row.startTime,
+        endTime: input.endTime !== undefined ? (input.endTime ? new Date(input.endTime) : null) : row.endTime,
+        visibility: input.visibility ?? row.visibility,
+        status: input.status ?? row.status,
+        updateBy: toDbId(ctx.userId),
+        updateTime: now(),
+      },
     });
 
-    return decorateProject(project);
+    return decorateProject(updated);
   },
 
-  remove(ctx: AuthContext, id: number) {
-    const project = getProjectOrThrow(ctx.tenantId, id);
+  async remove(ctx: AuthContext, id: string) {
+    const row = await getProjectOrThrow(ctx.tenantId, id);
+    const project = toProject(row);
     ensureProjectManager(ctx, project);
 
-    const activeTasks = projectTasks(ctx.tenantId, id);
-    if (activeTasks.length > 0) {
+    const taskCount = await prisma.task.count({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(id), delFlag: "0" },
+    });
+    if (taskCount > 0) {
       throw new AppError("Project still contains active tasks", 400);
     }
 
-    project.delFlag = "1";
-    project.updateBy = ctx.userId;
-    project.updateTime = now();
+    await prisma.project.update({
+      where: { id: toDbId(id) },
+      data: { delFlag: "1", updateBy: toDbId(ctx.userId), updateTime: now() },
+    });
     return { success: true };
   },
 
-  archive(ctx: AuthContext, id: number) {
-    return this.update(ctx, id, { status: "2" });
+  async archive(ctx: AuthContext, id: string) {
+    return projectService.update(ctx, id, { status: "2" });
   },
 
-  options(ctx: AuthContext) {
-    return db.projects
-      .filter((item) => item.tenantId === ctx.tenantId && item.delFlag === "0")
-      .map((item) => ({ id: item.id, projectName: item.projectName, status: item.status }));
-  },
-
-  listMembers(ctx: AuthContext, projectId: number) {
-    getProjectOrThrow(ctx.tenantId, projectId);
-    return projectMembers(ctx.tenantId, projectId).map((item) => ({
-      ...item,
-      user: db.users.find((user) => user.userId === item.userId),
+  async options(ctx: AuthContext) {
+    const rows = await prisma.project.findMany({
+      where: { tenantId: ctx.tenantId, delFlag: "0" },
+      select: { id: true, projectName: true, status: true },
+      orderBy: { id: "desc" },
+    });
+    return rows.map((row) => ({
+      id: String(row.id),
+      projectName: row.projectName,
+      status: row.status,
     }));
   },
 
-  addMembers(ctx: AuthContext, projectId: number, input: AddMembersInput) {
-    const project = getProjectOrThrow(ctx.tenantId, projectId);
-    ensureProjectManager(ctx, project);
+  async listMembers(ctx: AuthContext, projectId: string) {
+    await getProjectOrThrow(ctx.tenantId, projectId);
+    const members = await prisma.projectMember.findMany({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(projectId), delFlag: "0" },
+    });
+    const userIds = [...new Set(members.map((m) => m.userId))];
+    const users = await prisma.user.findMany({ where: { userId: { in: userIds } } });
+    const userMap = new Map(users.map((u) => [u.userId, toUserProfile(u)]));
 
-    input.members.forEach((memberInput: AddMembersInput["members"][number]) => {
-      const user = getActiveUser(ctx.tenantId, memberInput.userId);
-      const exists = db.projectMembers.find(
-        (item) =>
-          item.tenantId === ctx.tenantId &&
-          item.projectId === projectId &&
-          item.userId === memberInput.userId &&
-          item.delFlag === "0",
-      );
+    return members.map((item) => ({
+      ...toProjectMember(item),
+      user: userMap.get(item.userId),
+    }));
+  },
+
+  async addMembers(ctx: AuthContext, projectId: string, input: AddMembersInput) {
+    const row = await getProjectOrThrow(ctx.tenantId, projectId);
+    const project = toProject(row);
+    ensureProjectManager(ctx, project);
+    const createdAt = now();
+
+    for (const memberInput of input.members) {
+      await getActiveUser(ctx.tenantId, memberInput.userId);
+      const exists = await prisma.projectMember.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          projectId: toDbId(projectId),
+          userId: toDbId(memberInput.userId),
+          delFlag: "0",
+        },
+      });
 
       if (exists) {
         throw new AppError(`User ${memberInput.userId} already exists in project`, 409);
       }
 
-      db.projectMembers.push({
-        id: db.nextId("projectMember"),
-        tenantId: ctx.tenantId,
-        projectId,
-        userId: memberInput.userId,
-        deptId: user.deptId,
-        roleType: memberInput.roleType,
-        joinType: "invite",
-        createBy: ctx.userId,
-        createTime: now(),
-        delFlag: "0",
+      const user = await getActiveUser(ctx.tenantId, memberInput.userId);
+      await prisma.projectMember.create({
+        data: {
+          tenantId: ctx.tenantId,
+          projectId: toDbId(projectId),
+          userId: toDbId(memberInput.userId),
+          deptId: user.deptId,
+          roleType: memberInput.roleType,
+          joinType: "invite",
+          createBy: toDbId(ctx.userId),
+          createTime: createdAt,
+          delFlag: "0",
+        },
       });
-    });
+    }
 
-    return this.listMembers(ctx, projectId);
+    return projectService.listMembers(ctx, projectId);
   },
 
-  removeMember(ctx: AuthContext, projectId: number, userId: number) {
-    const project = getProjectOrThrow(ctx.tenantId, projectId);
+  async removeMember(ctx: AuthContext, projectId: string, userId: string) {
+    const row = await getProjectOrThrow(ctx.tenantId, projectId);
+    const project = toProject(row);
     ensureProjectManager(ctx, project);
 
     if (project.ownerUserId === userId) {
       throw new AppError("Transfer project owner before removing owner member", 400);
     }
 
-    const member = db.projectMembers.find(
-      (item) => item.tenantId === ctx.tenantId && item.projectId === projectId && item.userId === userId && item.delFlag === "0",
-    );
+    const member = await prisma.projectMember.findFirst({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(projectId), userId: toDbId(userId), delFlag: "0" },
+    });
     if (!member) {
       throw new AppError("Project member not found", 404);
     }
 
-    member.delFlag = "1";
+    await prisma.projectMember.update({
+      where: { id: member.id },
+      data: { delFlag: "1" },
+    });
     return { success: true };
   },
 
-  listProjectTasks(ctx: AuthContext, projectId: number, view?: string) {
-    getProjectOrThrow(ctx.tenantId, projectId);
-    const tasks = projectTasks(ctx.tenantId, projectId).map((item) => ({
-      ...item,
-      assignee: item.assigneeUserId ? db.users.find((user) => user.userId === item.assigneeUserId) : null,
+  async listProjectTasks(ctx: AuthContext, projectId: string, view?: string) {
+    await getProjectOrThrow(ctx.tenantId, projectId);
+    const taskRows = await prisma.task.findMany({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(projectId), delFlag: "0" },
+      orderBy: { id: "desc" },
+    });
+    const assigneeIds = [...new Set(taskRows.map((t) => t.assigneeUserId).filter(Boolean))] as bigint[];
+    const users = assigneeIds.length ? await prisma.user.findMany({ where: { userId: { in: assigneeIds } } }) : [];
+    const userMap = new Map(users.map((u) => [u.userId, toUserProfile(u)]));
+
+    const tasks = taskRows.map((item) => ({
+      ...toTask(item),
+      assignee: item.assigneeUserId ? userMap.get(item.assigneeUserId) : null,
     }));
 
     if (view === "kanban") {
@@ -314,23 +368,33 @@ export const projectService = {
     return tasks;
   },
 
-  getGantt(ctx: AuthContext, projectId: number) {
-    return projectTasks(ctx.tenantId, projectId).map((item: Task) => ({
-      taskId: item.id,
-      taskName: item.taskName,
-      startTime: item.startTime,
-      dueTime: item.dueTime,
-      progress: item.progress,
-      status: item.status,
-    }));
+  async getGantt(ctx: AuthContext, projectId: string) {
+    await getProjectOrThrow(ctx.tenantId, projectId);
+    const taskRows = await prisma.task.findMany({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(projectId), delFlag: "0" },
+    });
+    return taskRows.map((item) => {
+      const t = toTask(item);
+      return {
+        taskId: t.id,
+        taskName: t.taskName,
+        startTime: t.startTime,
+        dueTime: t.dueTime,
+        progress: t.progress,
+        status: t.status,
+      };
+    });
   },
 
-  getStatistics(ctx: AuthContext, projectId: number) {
-    const tasks = projectTasks(ctx.tenantId, projectId);
+  async getStatistics(ctx: AuthContext, projectId: string) {
+    await getProjectOrThrow(ctx.tenantId, projectId);
+    const tasks = await prisma.task.findMany({
+      where: { tenantId: ctx.tenantId, projectId: toDbId(projectId), delFlag: "0" },
+    });
     const total = tasks.length;
     const completed = tasks.filter((item) => item.status === "3").length;
     const delayed = tasks.filter((item) => item.status === "4").length;
-    const overdue = tasks.filter((item) => item.status !== "3" && item.dueTime && new Date(item.dueTime) < new Date()).length;
+    const overdue = tasks.filter((item) => item.status !== "3" && item.dueTime && item.dueTime < new Date()).length;
 
     return {
       totalTasks: total,

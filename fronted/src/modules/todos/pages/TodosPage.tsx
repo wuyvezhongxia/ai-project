@@ -188,14 +188,26 @@ function TodosPage() {
               <span>操作</span>
             </div>
             {filteredTodoTasks.map((task) => (
-              <div key={task.id} className="todo-list-row">
-                <button type="button" className="todo-cell-main todo-cell-trigger" onClick={() => openTaskDetail(task.id)}>
+              <div
+                key={task.id}
+                className="todo-list-row todo-list-row-clickable"
+                role="button"
+                tabIndex={0}
+                onClick={() => openTaskDetail(task.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    openTaskDetail(task.id)
+                  }
+                }}
+              >
+                <div className="todo-cell-main">
                   <div className="todo-row-title">{task.title}</div>
                   <div className="task-meta">
                     {task.favorite ? <Tag color="gold">已收藏</Tag> : null}
                     <span>{task.id}</span>
                   </div>
-                </button>
+                </div>
                 <span>{task.project}</span>
                 <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
                 <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
@@ -205,10 +217,15 @@ function TodosPage() {
                   <span>{task.owner}</span>
                 </Space>
                 <div className="todo-actions">
-                  <Button type="link" onClick={() => openTaskDetail(task.id)}>
-                    详情
-                  </Button>
-                  <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDeleteTodo(task.id)}>
+                  <Button
+                    type="link"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void handleDeleteTodo(task.id)
+                    }}
+                  >
                     删除
                   </Button>
                 </div>

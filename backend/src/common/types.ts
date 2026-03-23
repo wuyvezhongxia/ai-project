@@ -1,6 +1,6 @@
 import type { Request } from "express";
 
-export type ID = number;
+export type ID = string;
 
 export type AuthContext = {
   userId: ID;

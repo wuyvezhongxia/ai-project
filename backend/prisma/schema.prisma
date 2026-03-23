@@ -1,0 +1,350 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["public", "rz_ai"]
+}
+
+model Tenant {
+  id              BigInt    @id @db.BigInt
+  tenantId        String    @map("tenant_id") @db.VarChar(20)
+  contactUserName String?   @map("contact_user_name")
+  contactPhone    String?   @map("contact_phone")
+  companyName     String?   @map("company_name")
+  licenseNumber   String?   @map("license_number")
+  address         String?
+  intro           String?
+  domain          String?
+  remark          String?
+  packageId       BigInt?   @map("package_id") @db.BigInt
+  llmId           BigInt?   @map("llm_id") @db.BigInt
+  expireTime      DateTime? @map("expire_time") @db.Timestamptz(6)
+  accountCount    Int?      @map("account_count")
+  status          String?   @db.Char(1)
+  delFlag         String?   @map("del_flag") @db.Char(1)
+  createDept      BigInt?   @map("create_dept") @db.BigInt
+  createBy        BigInt?   @map("create_by") @db.BigInt
+  createTime      DateTime? @map("create_time") @db.Timestamptz(6)
+  updateBy        BigInt?   @map("update_by") @db.BigInt
+  updateTime      DateTime? @map("update_time") @db.Timestamptz(6)
+
+  @@map("sys_tenant")
+  @@schema("rz_ai")
+}
+
+model Dept {
+  deptId       BigInt    @id @map("dept_id") @db.BigInt
+  tenantId     String?   @map("tenant_id") @db.VarChar(20)
+  parentId     BigInt?   @map("parent_id") @db.BigInt
+  ancestors    String?   @db.VarChar(500)
+  deptName     String?   @map("dept_name") @db.VarChar(30)
+  deptCategory String?   @map("dept_category") @db.VarChar(100)
+  orderNum     Int?      @map("order_num")
+  leader       BigInt?   @db.BigInt
+  phone        String?   @db.VarChar(11)
+  email        String?   @db.VarChar(50)
+  status       String?   @db.Char(1)
+  delFlag      String?   @map("del_flag") @db.Char(1)
+  createDept   BigInt?   @map("create_dept") @db.BigInt
+  createBy     BigInt?   @map("create_by") @db.BigInt
+  createTime   DateTime? @map("create_time") @db.Timestamptz(6)
+  updateBy     BigInt?   @map("update_by") @db.BigInt
+  updateTime   DateTime? @map("update_time") @db.Timestamptz(6)
+
+  @@map("sys_dept")
+  @@schema("rz_ai")
+}
+
+model User {
+  userId      BigInt    @id @map("user_id") @db.BigInt
+  tenantId    String?   @map("tenant_id") @db.VarChar(20)
+  deptId      BigInt?   @map("dept_id") @db.BigInt
+  userName    String    @map("user_name") @db.VarChar(30)
+  unionid     String?   @db.VarChar(64)
+  nickName    String    @map("nick_name") @db.VarChar(30)
+  userType    String?   @map("user_type") @db.VarChar(10)
+  inviteCode  String?   @map("invite_code") @db.VarChar(32)
+  email       String?   @db.VarChar(50)
+  phonenumber String?   @db.VarChar(11)
+  sex         String?   @db.Char(1)
+  avatar      BigInt?   @db.BigInt
+  password    String?   @db.VarChar(100)
+  status      String?   @db.Char(1)
+  delFlag     String?   @map("del_flag") @db.Char(1)
+  loginIp     String?   @map("login_ip") @db.VarChar(128)
+  loginDate   DateTime? @map("login_date") @db.Timestamptz(6)
+  createDept  BigInt?   @map("create_dept") @db.BigInt
+  createBy    BigInt?   @map("create_by") @db.BigInt
+  createTime  DateTime? @map("create_time") @db.Timestamptz(6)
+  updateBy    BigInt?   @map("update_by") @db.BigInt
+  updateTime  DateTime? @map("update_time") @db.Timestamptz(6)
+  remark      String?   @db.VarChar(500)
+
+  @@index([tenantId])
+  @@map("sys_user")
+  @@schema("rz_ai")
+}
+
+model UserRole {
+  userId BigInt @map("user_id") @db.BigInt
+  roleId BigInt @map("role_id") @db.BigInt
+
+  @@id([userId, roleId])
+  @@map("sys_user_role")
+  @@schema("rz_ai")
+}
+
+model Project {
+  id          BigInt    @id @default(autoincrement()) @db.BigInt
+  tenantId    String    @map("tenant_id") @db.VarChar(20)
+  projectCode String?   @map("project_code") @db.VarChar(50)
+  projectName String    @map("project_name") @db.VarChar(100)
+  projectDesc String?   @map("project_desc")
+  ownerUserId BigInt    @map("owner_user_id") @db.BigInt
+  ownerDeptId BigInt?   @map("owner_dept_id") @db.BigInt
+  status      String    @db.Char(1)
+  priority    String?   @db.Char(1)
+  startTime   DateTime? @map("start_time")
+  endTime     DateTime? @map("end_time")
+  progress    Decimal?  @db.Decimal(5, 2)
+  visibility  String?   @db.Char(1)
+  createDept  BigInt?   @map("create_dept") @db.BigInt
+  createBy    BigInt    @map("create_by") @db.BigInt
+  createTime  DateTime  @map("create_time")
+  updateBy    BigInt?   @map("update_by") @db.BigInt
+  updateTime  DateTime? @map("update_time")
+  delFlag     String    @map("del_flag") @db.Char(1)
+
+  @@index([tenantId])
+  @@map("pm_project")
+  @@schema("public")
+}
+
+model ProjectMember {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId   String   @map("tenant_id") @db.VarChar(20)
+  projectId  BigInt   @map("project_id") @db.BigInt
+  userId     BigInt   @map("user_id") @db.BigInt
+  deptId     BigInt?  @map("dept_id") @db.BigInt
+  roleType   String   @map("role_type") @db.VarChar(20)
+  joinType   String?  @map("join_type") @db.VarChar(20)
+  createBy   BigInt   @map("create_by") @db.BigInt
+  createTime DateTime @map("create_time")
+  delFlag    String   @map("del_flag") @db.Char(1)
+
+  @@index([tenantId, projectId])
+  @@map("pm_project_member")
+  @@schema("public")
+}
+
+model Task {
+  id             BigInt    @id @default(autoincrement()) @db.BigInt
+  tenantId       String    @map("tenant_id") @db.VarChar(20)
+  projectId      BigInt?   @map("project_id") @db.BigInt
+  taskNo         String?   @map("task_no") @db.VarChar(50)
+  taskName       String    @map("task_name") @db.VarChar(200)
+  taskDesc       String?   @map("task_desc")
+  assigneeUserId BigInt?   @map("assignee_user_id") @db.BigInt
+  assigneeDeptId BigInt?   @map("assignee_dept_id") @db.BigInt
+  creatorUserId  BigInt    @map("creator_user_id") @db.BigInt
+  status         String    @db.Char(1)
+  priority       String?   @db.Char(1)
+  progress       Decimal?  @db.Decimal(5, 2)
+  startTime      DateTime? @map("start_time")
+  dueTime        DateTime? @map("due_time")
+  finishTime     DateTime? @map("finish_time")
+  riskLevel      String?   @map("risk_level") @db.Char(1)
+  parentTaskId   BigInt?   @map("parent_task_id") @db.BigInt
+  createDept     BigInt?   @map("create_dept") @db.BigInt
+  createBy       BigInt    @map("create_by") @db.BigInt
+  createTime     DateTime  @map("create_time")
+  updateBy       BigInt?   @map("update_by") @db.BigInt
+  updateTime     DateTime? @map("update_time")
+  delFlag        String    @map("del_flag") @db.Char(1)
+
+  @@index([tenantId])
+  @@index([tenantId, projectId])
+  @@map("pm_task")
+  @@schema("public")
+}
+
+model TaskCollaborator {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId   String   @map("tenant_id") @db.VarChar(20)
+  taskId     BigInt   @map("task_id") @db.BigInt
+  userId     BigInt   @map("user_id") @db.BigInt
+  deptId     BigInt?  @map("dept_id") @db.BigInt
+  createBy   BigInt   @map("create_by") @db.BigInt
+  createTime DateTime @map("create_time")
+  delFlag    String   @map("del_flag") @db.Char(1)
+
+  @@index([tenantId, taskId])
+  @@map("pm_task_collaborator")
+  @@schema("public")
+}
+
+model Subtask {
+  id          BigInt    @id @default(autoincrement()) @db.BigInt
+  tenantId    String    @map("tenant_id") @db.VarChar(20)
+  taskId      BigInt    @map("task_id") @db.BigInt
+  subtaskName String    @map("subtask_name") @db.VarChar(200)
+  status      String    @db.Char(1)
+  sortNo      Int?      @map("sort_no")
+  createBy    BigInt    @map("create_by") @db.BigInt
+  createTime  DateTime  @map("create_time")
+  updateBy    BigInt?   @map("update_by") @db.BigInt
+  updateTime  DateTime? @map("update_time")
+  delFlag     String    @map("del_flag") @db.Char(1)
+
+  @@index([tenantId, taskId])
+  @@map("pm_subtask")
+  @@schema("public")
+}
+
+model TaskComment {
+  id              BigInt    @id @default(autoincrement()) @db.BigInt
+  tenantId        String    @map("tenant_id") @db.VarChar(20)
+  taskId          BigInt    @map("task_id") @db.BigInt
+  commentUserId   BigInt    @map("comment_user_id") @db.BigInt
+  content         String
+  parentCommentId BigInt?   @map("parent_comment_id") @db.BigInt
+  createTime      DateTime  @map("create_time")
+  delFlag         String    @map("del_flag") @db.Char(1)
+
+  @@index([tenantId, taskId])
+  @@map("pm_task_comment")
+  @@schema("public")
+}
+
+model Attachment {
+  id           BigInt    @id @default(autoincrement()) @db.BigInt
+  tenantId     String    @map("tenant_id") @db.VarChar(20)
+  fileName     String    @map("file_name") @db.VarChar(255)
+  fileUrl      String    @map("file_url") @db.VarChar(500)
+  fileSize     BigInt?   @map("file_size") @db.BigInt
+  fileType     String?   @map("file_type") @db.VarChar(50)
+  storageType  String?   @map("storage_type") @db.VarChar(20)
+  uploadUserId BigInt    @map("upload_user_id") @db.BigInt
+  createTime   DateTime  @map("create_time")
+  delFlag      String    @map("del_flag") @db.Char(1)
+
+  @@index([tenantId])
+  @@map("pm_attachment")
+  @@schema("public")
+}
+
+model TaskAttachmentRel {
+  id           BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId     String   @map("tenant_id") @db.VarChar(20)
+  taskId       BigInt   @map("task_id") @db.BigInt
+  attachmentId BigInt   @map("attachment_id") @db.BigInt
+  createBy     BigInt   @map("create_by") @db.BigInt
+  createTime   DateTime @map("create_time")
+
+  @@index([tenantId, taskId])
+  @@map("pm_task_attachment_rel")
+  @@schema("public")
+}
+
+model Tag {
+  id         BigInt    @id @default(autoincrement()) @db.BigInt
+  tenantId   String    @map("tenant_id") @db.VarChar(20)
+  tagName    String    @map("tag_name") @db.VarChar(50)
+  tagColor   String?   @map("tag_color") @db.VarChar(20)
+  tagType    String?   @map("tag_type") @db.VarChar(20)
+  createBy   BigInt    @map("create_by") @db.BigInt
+  createTime DateTime  @map("create_time")
+  delFlag    String    @map("del_flag") @db.Char(1)
+
+  @@index([tenantId])
+  @@map("pm_tag")
+  @@schema("public")
+}
+
+model TaskTagRel {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId   String   @map("tenant_id") @db.VarChar(20)
+  taskId     BigInt   @map("task_id") @db.BigInt
+  tagId      BigInt   @map("tag_id") @db.BigInt
+  createBy   BigInt   @map("create_by") @db.BigInt
+  createTime DateTime @map("create_time")
+
+  @@index([tenantId, taskId])
+  @@map("pm_task_tag_rel")
+  @@schema("public")
+}
+
+model ProjectTagRel {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId   String   @map("tenant_id") @db.VarChar(20)
+  projectId  BigInt   @map("project_id") @db.BigInt
+  tagId      BigInt   @map("tag_id") @db.BigInt
+  createBy   BigInt   @map("create_by") @db.BigInt
+  createTime DateTime @map("create_time")
+
+  @@index([tenantId, projectId])
+  @@map("pm_project_tag_rel")
+  @@schema("public")
+}
+
+model TaskRelation {
+  id           BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId     String   @map("tenant_id") @db.VarChar(20)
+  fromTaskId   BigInt   @map("from_task_id") @db.BigInt
+  toTaskId     BigInt   @map("to_task_id") @db.BigInt
+  relationType String   @map("relation_type") @db.VarChar(20)
+  createBy     BigInt   @map("create_by") @db.BigInt
+  createTime   DateTime @map("create_time")
+
+  @@index([tenantId, fromTaskId])
+  @@map("pm_task_relation")
+  @@schema("public")
+}
+
+model TaskActivity {
+  id            BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId      String   @map("tenant_id") @db.VarChar(20)
+  taskId        BigInt   @map("task_id") @db.BigInt
+  actionType    String   @map("action_type") @db.VarChar(50)
+  actionUserId  BigInt   @map("action_user_id") @db.BigInt
+  actionContent String?  @map("action_content")
+  extraJson     Json?    @map("extra_json")
+  createTime    DateTime @map("create_time")
+
+  @@index([tenantId, taskId])
+  @@map("pm_task_activity")
+  @@schema("public")
+}
+
+model AiRecord {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId   String   @map("tenant_id") @db.VarChar(20)
+  bizType    String   @map("biz_type") @db.VarChar(30)
+  bizId      BigInt?  @map("biz_id") @db.BigInt
+  inputText  String   @map("input_text")
+  outputText String?  @map("output_text")
+  modelId    BigInt?  @map("model_id") @db.BigInt
+  createBy   BigInt   @map("create_by") @db.BigInt
+  createTime DateTime @map("create_time")
+
+  @@index([tenantId])
+  @@map("pm_ai_record")
+  @@schema("public")
+}
+
+model RiskSnapshot {
+  id           BigInt   @id @default(autoincrement()) @db.BigInt
+  tenantId     String   @map("tenant_id") @db.VarChar(20)
+  taskId       BigInt   @map("task_id") @db.BigInt
+  riskLevel    String?  @map("risk_level") @db.Char(1)
+  riskScore    Decimal? @map("risk_score") @db.Decimal
+  riskReason   String?  @map("risk_reason")
+  snapshotTime DateTime @map("snapshot_time")
+
+  @@map("pm_risk_snapshot")
+  @@schema("public")
+}

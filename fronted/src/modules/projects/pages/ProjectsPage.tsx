@@ -12,7 +12,7 @@ import {
 } from '../../workspace/services/workspace.queries'
 
 function ProjectsPage() {
-  const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
+  const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
   const [projectView, setProjectView] = useState<ProjectView>('kanban')
@@ -62,8 +62,8 @@ function ProjectsPage() {
           </Space>
           <Space wrap>
             <Button className="ghost-button">日筛选</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openTaskModal}>
-              新建任务
+            <Button type="primary" icon={<PlusOutlined />} onClick={openProjectModal}>
+              新建项目
             </Button>
           </Space>
         </div>

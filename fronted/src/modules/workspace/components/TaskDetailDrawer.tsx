@@ -3,6 +3,7 @@ import {
   CheckCircleFilled,
   ClockCircleOutlined,
   CopyOutlined,
+  EditOutlined,
   EllipsisOutlined,
   FileTextOutlined,
   LinkOutlined,
@@ -10,14 +11,18 @@ import {
   StarOutlined,
   UserOutlined,
 } from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Avatar,
   Button,
   Card,
+  DatePicker,
   Drawer,
   Empty,
   Flex,
+  Input,
   List,
   Progress,
   Select,
@@ -25,17 +30,78 @@ import {
   Spin,
   Tabs,
   Tag,
+  message,
 } from 'antd'
 import { useWorkspaceStore } from '../store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../utils/task-ui'
-import { useTaskDetailQuery, useUpdateTaskStatusMutation } from '../services/workspace.queries'
+import {
+  useProjectOptionsQuery,
+  useTaskDetailQuery,
+  useUpdateTaskMutation,
+  useUserOptionsQuery,
+} from '../services/workspace.queries'
+
+const statusOptions = [
+  { label: '待开始', value: '待开始' },
+  { label: '进行中', value: '进行中' },
+  { label: '待审核', value: '待审核' },
+  { label: '已完成', value: '已完成' },
+  { label: '延期', value: '延期' },
+]
+
+const priorityOptions = [
+  { label: 'P0', value: 'P0' },
+  { label: 'P1', value: 'P1' },
+  { label: 'P2', value: 'P2' },
+  { label: 'P3', value: 'P3' },
+]
+
+const statusValueMap: Record<(typeof statusOptions)[number]['value'], '0' | '1' | '2' | '3' | '4'> = {
+  待开始: '0',
+  进行中: '1',
+  待审核: '2',
+  已完成: '3',
+  延期: '4',
+}
+
+const priorityValueMap: Record<(typeof priorityOptions)[number]['value'], '0' | '1' | '2' | '3'> = {
+  P0: '3',
+  P1: '2',
+  P2: '1',
+  P3: '0',
+}
 
 function TaskDetailDrawer() {
   const detailOpen = useWorkspaceStore((state) => state.detailOpen)
   const closeTaskDetail = useWorkspaceStore((state) => state.closeTaskDetail)
   const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
   const { data: selectedTask, isLoading } = useTaskDetailQuery(selectedTaskId)
-  const updateStatusMutation = useUpdateTaskStatusMutation()
+  const { data: projectOptions = [] } = useProjectOptionsQuery()
+  const { data: userOptions = [] } = useUserOptionsQuery()
+  const updateTaskMutation = useUpdateTaskMutation()
+  const [draftTitle, setDraftTitle] = useState('')
+  const [draftDescription, setDraftDescription] = useState('')
+  const [descriptionState, setDescriptionState] = useState<'idle' | 'editing' | 'saving' | 'saved' | 'error'>('idle')
+  const [editingProject, setEditingProject] = useState(false)
+  const [editingCollaborators, setEditingCollaborators] = useState(false)
+
+  useEffect(() => {
+    setDraftTitle(selectedTask?.title ?? '')
+    setDraftDescription(selectedTask?.description ?? '')
+    setDescriptionState('idle')
+    setEditingProject(false)
+    setEditingCollaborators(false)
+  }, [selectedTask?.description, selectedTask?.id, selectedTask?.title])
+
+  useEffect(() => {
+    if (descriptionState !== 'saved') return
+
+    const timer = window.setTimeout(() => {
+      setDescriptionState('idle')
+    }, 1800)
+
+    return () => window.clearTimeout(timer)
+  }, [descriptionState])
 
   if (!selectedTask) {
     return (
@@ -49,6 +115,52 @@ function TaskDetailDrawer() {
   const subtaskPercent = selectedTask.subtasks.length
     ? Math.round((completedSubtasks / selectedTask.subtasks.length) * 100)
     : 0
+  const collaboratorIds = selectedTask.collaborators?.map((user) => user.userId) ?? []
+
+  const handleTaskUpdate = async (
+    payload: Parameters<typeof updateTaskMutation.mutateAsync>[0]['payload'],
+    afterSuccess?: () => void,
+  ) => {
+    try {
+      await updateTaskMutation.mutateAsync({
+        taskId: selectedTask.id,
+        payload,
+      })
+      afterSuccess?.()
+    } catch {
+      message.error('任务更新失败，请稍后重试')
+    }
+  }
+
+  const handleTitleCommit = async () => {
+    const nextTitle = draftTitle.trim()
+
+    if (!nextTitle) {
+      setDraftTitle(selectedTask.title)
+      return
+    }
+
+    if (nextTitle === selectedTask.title) return
+
+    await handleTaskUpdate({ taskName: nextTitle })
+  }
+
+  const handleDescriptionCommit = async () => {
+    if (draftDescription === (selectedTask.description ?? '')) return
+
+    setDescriptionState('saving')
+
+    try {
+      await updateTaskMutation.mutateAsync({
+        taskId: selectedTask.id,
+        payload: { taskDesc: draftDescription },
+      })
+      setDescriptionState('saved')
+    } catch {
+      setDescriptionState('error')
+      message.error('任务更新失败，请稍后重试')
+    }
+  }
 
   return (
     <Drawer
@@ -69,12 +181,21 @@ function TaskDetailDrawer() {
             <Tag color={getPriorityColor(selectedTask.priority)}>{selectedTask.priority} 优先</Tag>
             <Tag color={getStatusColor(selectedTask.status)}>{selectedTask.status}</Tag>
           </Space>
-          <div className="drawer-main-title">{selectedTask.title}</div>
+          <Input
+            value={draftTitle}
+            size="large"
+            variant="borderless"
+            className="drawer-title-input"
+            onChange={(event) => setDraftTitle(event.target.value)}
+            onBlur={() => void handleTitleCommit()}
+            onPressEnter={() => void handleTitleCommit()}
+          />
           <Space wrap className="drawer-summary">
             <span>
               <CalendarOutlined /> 截止 {selectedTask.dueText}
             </span>
-            <Tag color="error">今天到期</Tag>
+            {selectedTask.dueCategory === 'today' ? <Tag color="error">今天到期</Tag> : null}
+            {selectedTask.dueCategory === 'overdue' ? <Tag color="warning">已延期</Tag> : null}
             <span>
               <UserOutlined /> 负责人 {selectedTask.owner}
             </span>
@@ -103,8 +224,24 @@ function TaskDetailDrawer() {
                   <section className="detail-section">
                     <div className="section-title">任务描述</div>
                     <div className="rich-card">
-                      <p>{selectedTask.description || '当前任务暂无详细描述。'}</p>
-                      <p className="muted-text">后续可继续接入描述编辑能力。</p>
+                      <Input.TextArea
+                        value={draftDescription}
+                        autoSize={{ minRows: 4, maxRows: 10 }}
+                        className="detail-description-input"
+                        placeholder="输入任务描述、背景信息或补充说明..."
+                        onChange={(event) => {
+                          setDraftDescription(event.target.value)
+                          setDescriptionState('editing')
+                        }}
+                        onBlur={() => void handleDescriptionCommit()}
+                      />
+                      <p className={`description-status description-status-${descriptionState}`}>
+                        {descriptionState === 'editing' ? '编辑中，失去焦点后自动保存' : null}
+                        {descriptionState === 'saving' ? '保存中...' : null}
+                        {descriptionState === 'saved' ? '已保存' : null}
+                        {descriptionState === 'error' ? '保存失败，请重试' : null}
+                        {descriptionState === 'idle' ? '描述会在失去焦点时自动保存。' : null}
+                      </p>
                     </div>
                   </section>
 
@@ -183,47 +320,64 @@ function TaskDetailDrawer() {
                       </div>
                       <div className="info-row">
                         <span>所属项目</span>
-                        <span className="link-text">{selectedTask.project}</span>
+                        <div className="info-row-content">
+                          {editingProject ? (
+                            <Select
+                              size="small"
+                              className="info-row-select"
+                              value={selectedTask.projectId}
+                              options={projectOptions}
+                              placeholder="选择项目"
+                              onChange={(value) =>
+                                void handleTaskUpdate({ projectId: value }, () => {
+                                  setEditingProject(false)
+                                })
+                              }
+                            />
+                          ) : (
+                            <Space size={4}>
+                              <span className="link-text">{selectedTask.project}</span>
+                              <Button
+                                type="text"
+                                size="small"
+                                className="drawer-mini-action"
+                                icon={<EditOutlined />}
+                                onClick={() => setEditingProject(true)}
+                              />
+                            </Space>
+                          )}
+                        </div>
                       </div>
                       <div className="info-row">
                         <span>优先级</span>
-                        <Tag color={getPriorityColor(selectedTask.priority)}>{selectedTask.priority}</Tag>
+                        <Select
+                          size="small"
+                          className="info-row-select"
+                          value={selectedTask.priority}
+                          options={priorityOptions}
+                          onChange={(value) => void handleTaskUpdate({ priority: priorityValueMap[value] })}
+                        />
                       </div>
                       <div className="info-row">
                         <span>当前状态</span>
                         <Select
                           size="small"
+                          className="info-row-select"
                           value={selectedTask.status}
-                          onChange={(value) =>
-                            updateStatusMutation.mutate({
-                              taskId: selectedTask.id,
-                              status:
-                                value === '待开始'
-                                  ? '0'
-                                  : value === '进行中'
-                                    ? '1'
-                                    : value === '待审核'
-                                      ? '2'
-                                      : value === '已完成'
-                                        ? '3'
-                                        : '4',
-                            })
-                          }
-                          options={[
-                            { label: '待开始', value: '待开始' },
-                            { label: '进行中', value: '进行中' },
-                            { label: '待审核', value: '待审核' },
-                            { label: '已完成', value: '已完成' },
-                            { label: '延期', value: '延期' },
-                          ]}
+                          onChange={(value) => void handleTaskUpdate({ status: statusValueMap[value] })}
+                          options={statusOptions}
                         />
                       </div>
                       <div className="info-row">
                         <span>负责人</span>
-                        <Space>
-                          <Avatar size="small">{selectedTask.owner.slice(0, 1)}</Avatar>
-                          <span>{selectedTask.owner}</span>
-                        </Space>
+                        <Select
+                          size="small"
+                          className="info-row-select"
+                          value={selectedTask.ownerId}
+                          options={userOptions}
+                          placeholder="选择负责人"
+                          onChange={(value) => void handleTaskUpdate({ assigneeUserId: value })}
+                        />
                       </div>
                       <div className="info-row">
                         <span>创建人</span>
@@ -234,15 +388,35 @@ function TaskDetailDrawer() {
                       </div>
                       <div className="info-row">
                         <span>协作人</span>
-                        {selectedTask.collaborators?.length ? (
-                          <Space wrap>
-                            {selectedTask.collaborators.map((user) => (
-                              <Tag key={user.userId}>{user.nickName}</Tag>
-                            ))}
-                          </Space>
-                        ) : (
-                          <span className="muted-text">暂无</span>
-                        )}
+                        <div className="info-row-content collaborator-field">
+                          {selectedTask.collaborators?.length ? (
+                            <Space wrap>
+                              {selectedTask.collaborators.map((user) => (
+                                <Tag key={user.userId}>{user.nickName}</Tag>
+                              ))}
+                            </Space>
+                          ) : (
+                            <span className="muted-text">暂无</span>
+                          )}
+                          <Button
+                            type="text"
+                            size="small"
+                            className="drawer-mini-action"
+                            icon={<PlusOutlined />}
+                            onClick={() => setEditingCollaborators((value) => !value)}
+                          />
+                          {editingCollaborators ? (
+                            <Select
+                              mode="multiple"
+                              size="small"
+                              className="collaborator-select"
+                              value={collaboratorIds}
+                              options={userOptions}
+                              placeholder="选择协作人"
+                              onChange={(value) => void handleTaskUpdate({ collaboratorUserIds: value as string[] })}
+                            />
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -252,13 +426,31 @@ function TaskDetailDrawer() {
                     <div className="side-panel">
                       <div className="info-row">
                         <span>开始时间</span>
-                        <span>{selectedTask.startAt || '未设置'}</span>
+                        <DatePicker
+                          size="small"
+                          showTime
+                          allowClear={false}
+                          className="info-row-picker"
+                          value={selectedTask.startAt ? dayjs(selectedTask.startAt) : null}
+                          onChange={(value) => {
+                            if (!value) return
+                            void handleTaskUpdate({ startTime: value.toISOString() })
+                          }}
+                        />
                       </div>
                       <div className="info-row">
                         <span>计划截止</span>
-                        <span className={selectedTask.status === '延期' ? 'danger-text' : ''}>
-                          {selectedTask.dueAt || '未设置'}
-                        </span>
+                        <DatePicker
+                          size="small"
+                          showTime
+                          allowClear={false}
+                          className="info-row-picker"
+                          value={selectedTask.dueAt ? dayjs(selectedTask.dueAt) : null}
+                          onChange={(value) => {
+                            if (!value) return
+                            void handleTaskUpdate({ dueTime: value.toISOString() })
+                          }}
+                        />
                       </div>
                       <div className="info-row">
                         <span>任务进度</span>

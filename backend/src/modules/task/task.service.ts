@@ -1,8 +1,20 @@
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { db } from "../../common/data-store";
+import {
+  toAttachment,
+  toProject,
+  toSubtask,
+  toTag,
+  toTask,
+  toTaskActivity,
+  toTaskComment,
+  toUserProfile,
+} from "../../common/db-mappers";
+import { fromDbDecimal, fromDbId, toDbId } from "../../common/db-values";
 import { AppError } from "../../common/http";
-import type { Attachment, AuthContext, Project, Subtask, Tag, Task, TaskComment } from "../../common/types";
+import { prisma } from "../../common/prisma";
+import type { Attachment, AuthContext, Tag, Task } from "../../common/types";
 import {
   bindAttachmentsSchema,
   bindTagsSchema,
@@ -26,890 +38,1277 @@ type SubtaskInput = z.infer<typeof subtaskSchema>;
 type CommentInput = z.infer<typeof commentSchema>;
 type UploadFileInput = z.infer<typeof uploadFileSchema>;
 type BindAttachmentsInput = z.infer<typeof bindAttachmentsSchema>;
-type CreateTagInput = z.infer<typeof createTagSchema>;
 type BindTagsInput = z.infer<typeof bindTagsSchema>;
+type CreateTagInput = z.infer<typeof createTagSchema>;
 type RelationInput = z.infer<typeof relationSchema>;
 type WorkloadQuery = z.infer<typeof workloadQuerySchema>;
 
-const now = () => new Date().toISOString();
+const DEFAULT_PRIORITY = "1";
+const DEFAULT_STATUS = "0";
 
-const isManager = (ctx: AuthContext) => ctx.roleIds.includes(1);
-
-const getProject = (tenantId: string, projectId?: number) => {
-  if (!projectId) {
-    return null;
-  }
-
-  const project = db.projects.find((item) => item.id === projectId && item.tenantId === tenantId && item.delFlag === "0");
-  if (!project) {
-    throw new AppError("Project not found", 404);
-  }
-
-  return project;
+const statusKanbanMap: Record<string, string> = {
+  "0": "notStarted",
+  "1": "inProgress",
+  "2": "review",
+  "3": "completed",
+  "4": "delayed",
 };
 
-const ensureProjectMember = (ctx: AuthContext, project: Project | null) => {
-  if (!project) {
-    return;
-  }
+const isManager = (ctx: AuthContext) => ctx.roleIds.includes("1");
 
-  const isMember = db.projectMembers.some(
-    (item) =>
-      item.tenantId === ctx.tenantId &&
-      item.projectId === project.id &&
-      item.userId === ctx.userId &&
-      item.delFlag === "0",
-  );
+const buildDueCategory = (dueTime?: string) => {
+  if (!dueTime) return "week";
 
-  if (project.ownerUserId === ctx.userId || isManager(ctx) || isMember) {
-    return;
-  }
+  const due = new Date(dueTime);
+  if (Number.isNaN(due.getTime())) return "week";
 
-  throw new AppError("No permission to access project task", 403);
+  const now = Date.now();
+  if (due.getTime() < now) return "overdue";
+  if (due.getTime() - now <= 24 * 60 * 60 * 1000) return "today";
+
+  return "week";
 };
 
-const getActiveUser = (tenantId: string, userId?: number) => {
+const buildDueText = (task: Task) => {
+  if (task.status === "3") return "已完成";
+  if (!task.dueTime) return "未设置";
+
+  const due = new Date(task.dueTime);
+  if (Number.isNaN(due.getTime())) return task.dueTime;
+
+  const diff = due.getTime() - Date.now();
+  if (diff < 0) {
+    return `已超期 ${Math.max(1, Math.ceil(Math.abs(diff) / (24 * 60 * 60 * 1000)))} 天`;
+  }
+
+  if (diff <= 24 * 60 * 60 * 1000) {
+    return `今天 ${due.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
+  return due.toISOString().slice(0, 10);
+};
+
+async function getActiveUser(ctx: AuthContext, userId?: string) {
   if (!userId) {
     return null;
   }
 
-  const user = db.users.find(
-    (item) => item.userId === userId && item.tenantId === tenantId && item.status === "0" && item.delFlag === "0",
-  );
-  if (!user) {
-    throw new AppError(`User ${userId} not found or disabled`, 400);
+  const user = await prisma.user.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      userId: toDbId(userId),
+      delFlag: "0",
+      status: "0",
+    },
+  });
+
+  return user ? toUserProfile(user) : null;
+}
+
+async function getProject(ctx: AuthContext, projectId?: string) {
+  if (!projectId) {
+    return null;
   }
 
-  return user;
-};
+  const project = await prisma.project.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      id: toDbId(projectId),
+      delFlag: "0",
+    },
+  });
 
-const getTaskOrThrow = (tenantId: string, id: number) => {
-  const task = db.tasks.find((item) => item.id === id && item.tenantId === tenantId && item.delFlag === "0");
+  return project ? toProject(project) : null;
+}
+
+async function ensureProjectAccess(ctx: AuthContext, projectId?: string) {
+  if (!projectId || isManager(ctx)) {
+    return;
+  }
+
+  const member = await prisma.projectMember.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      projectId: toDbId(projectId),
+      userId: toDbId(ctx.userId),
+      delFlag: "0",
+    },
+  });
+
+  if (!member) {
+    throw new AppError("No permission to access this project", 403);
+  }
+}
+
+async function getTaskOrThrow(ctx: AuthContext, taskId: string) {
+  const task = await prisma.task.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      id: toDbId(taskId),
+      delFlag: "0",
+    },
+  });
+
   if (!task) {
     throw new AppError("Task not found", 404);
   }
 
-  return task;
-};
-
-const ensureTaskEditor = (ctx: AuthContext, task: Task) => {
-  const project = getProject(ctx.tenantId, task.projectId);
-  const isCollaborator = db.taskCollaborators.some(
-    (item) => item.taskId === task.id && item.userId === ctx.userId && item.tenantId === ctx.tenantId && item.delFlag === "0",
-  );
-
-  if (
-    isManager(ctx) ||
-    task.assigneeUserId === ctx.userId ||
-    task.createBy === ctx.userId ||
-    isCollaborator ||
-    project?.ownerUserId === ctx.userId
-  ) {
-    return;
+  if (task.projectId) {
+    await ensureProjectAccess(ctx, String(task.projectId));
+    return task;
   }
 
-  throw new AppError("No permission to modify task", 403);
-};
+  if (isManager(ctx)) {
+    return task;
+  }
 
-const ensureTaskCommentPermission = (ctx: AuthContext, task: Task) => {
-  const project = getProject(ctx.tenantId, task.projectId);
-  ensureProjectMember(ctx, project);
-};
+  const currentUserId = toDbId(ctx.userId);
+  if (task.assigneeUserId === currentUserId || task.creatorUserId === currentUserId || task.createBy === currentUserId) {
+    return task;
+  }
 
-const recalcProjectProgress = (tenantId: string, projectId?: number) => {
+  const collaborator = await prisma.taskCollaborator.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      taskId: task.id,
+      userId: currentUserId,
+      delFlag: "0",
+    },
+  });
+
+  if (!collaborator) {
+    throw new AppError("No permission to access this task", 403);
+  }
+
+  return task;
+}
+
+async function ensureAttachmentExists(ctx: AuthContext, attachmentId: string) {
+  const attachment = await prisma.attachment.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      id: toDbId(attachmentId),
+      delFlag: "0",
+    },
+  });
+
+  if (!attachment) {
+    throw new AppError("Attachment not found", 404);
+  }
+
+  return attachment;
+}
+
+async function ensureTagExists(ctx: AuthContext, tagId: string) {
+  const tag = await prisma.tag.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      id: toDbId(tagId),
+      delFlag: "0",
+    },
+  });
+
+  if (!tag) {
+    throw new AppError("Tag not found", 404);
+  }
+
+  return tag;
+}
+
+async function logTaskActivity(
+  ctx: AuthContext,
+  taskId: string,
+  actionType: string,
+  actionContent?: string,
+  extraJson?: Record<string, unknown>,
+) {
+  await prisma.taskActivity.create({
+    data: {
+      tenantId: ctx.tenantId,
+      taskId: toDbId(taskId),
+      actionType,
+      actionUserId: toDbId(ctx.userId),
+      actionContent,
+      extraJson: extraJson as Prisma.InputJsonValue | undefined,
+      createTime: new Date(),
+    },
+  });
+}
+
+async function refreshProjectProgress(ctx: AuthContext, projectId?: string) {
   if (!projectId) {
     return;
   }
 
-  const project = db.projects.find((item) => item.id === projectId && item.tenantId === tenantId && item.delFlag === "0");
-  if (!project) {
-    return;
-  }
-
-  const tasks = db.tasks.filter((item) => item.projectId === projectId && item.tenantId === tenantId && item.delFlag === "0");
-  const progress = tasks.length === 0 ? 0 : tasks.reduce((sum, item) => sum + item.progress, 0) / tasks.length;
-  project.progress = Number(progress.toFixed(2));
-  project.updateTime = now();
-};
-
-const refreshTaskDerivedFields = (task: Task) => {
-  if (task.status === "3" || task.progress === 100) {
-    task.status = "3";
-    task.progress = 100;
-    task.finishTime = task.finishTime ?? now();
-  } else {
-    task.finishTime = undefined;
-  }
-
-  if (!task.dueTime || task.status === "3") {
-    task.riskLevel = "0";
-    return;
-  }
-
-  const dueAt = new Date(task.dueTime).getTime();
-  const diff = dueAt - Date.now();
-  if (diff < 0) {
-    task.status = "4";
-    task.riskLevel = "3";
-  } else if (diff <= 24 * 60 * 60 * 1000 && task.progress < 80) {
-    task.riskLevel = "2";
-  } else if (diff <= 48 * 60 * 60 * 1000 && task.progress < 60) {
-    task.riskLevel = "1";
-  } else {
-    task.riskLevel = "0";
-  }
-};
-
-const logTaskActivity = (ctx: AuthContext, taskId: number, actionType: string, actionContent?: string, extraJson?: Record<string, unknown>) => {
-  db.taskActivities.push({
-    id: db.nextId("taskActivity"),
-    tenantId: ctx.tenantId,
-    taskId,
-    actionType,
-    actionUserId: ctx.userId,
-    actionContent,
-    extraJson,
-    createTime: now(),
+  const rows = await prisma.task.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      projectId: toDbId(projectId),
+      delFlag: "0",
+    },
+    select: {
+      progress: true,
+    },
   });
-};
 
-const decorateTask = (ctx: AuthContext, task: Task) => {
-  const collaborators = db.taskCollaborators
-    .filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId && item.delFlag === "0")
-    .map((item) => db.users.find((user) => user.userId === item.userId))
-    .filter(Boolean);
+  const value =
+    rows.length === 0
+      ? 0
+      : Number((rows.reduce((sum, row) => sum + (fromDbDecimal(row.progress) ?? 0), 0) / rows.length).toFixed(2));
 
-  const tags = db.taskTagRels
-    .filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId)
-    .map((item) => db.tags.find((tag) => tag.id === item.tagId && tag.delFlag === "0"))
-    .filter(Boolean);
+  await prisma.project.update({
+    where: { id: toDbId(projectId) },
+    data: {
+      progress: new Prisma.Decimal(value),
+      updateTime: new Date(),
+    },
+  });
+}
 
-  const attachmentIds = db.taskAttachmentRels
-    .filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId)
-    .map((item) => item.attachmentId);
-  const attachments = db.attachments.filter(
-    (item) => attachmentIds.includes(item.id) && item.tenantId === ctx.tenantId && item.delFlag === "0",
-  );
+async function buildTaskView(ctx: AuthContext, task: Task) {
+  const [project, assignee, creator, collaboratorRows, subtaskRows, commentRows, activityRows, relationRows, attachmentRelRows, tagRelRows] =
+    await Promise.all([
+      getProject(ctx, task.projectId),
+      getActiveUser(ctx, task.assigneeUserId),
+      getActiveUser(ctx, task.creatorUserId),
+      prisma.taskCollaborator.findMany({
+        where: { tenantId: ctx.tenantId, taskId: toDbId(task.id), delFlag: "0" },
+        orderBy: { createTime: "asc" },
+      }),
+      prisma.subtask.findMany({
+        where: { tenantId: ctx.tenantId, taskId: toDbId(task.id), delFlag: "0" },
+        orderBy: [{ sortNo: "asc" }, { createTime: "asc" }],
+      }),
+      prisma.taskComment.findMany({
+        where: { tenantId: ctx.tenantId, taskId: toDbId(task.id), delFlag: "0" },
+        orderBy: { createTime: "desc" },
+      }),
+      prisma.taskActivity.findMany({
+        where: { tenantId: ctx.tenantId, taskId: toDbId(task.id) },
+        orderBy: { createTime: "desc" },
+      }),
+      prisma.taskRelation.findMany({
+        where: { tenantId: ctx.tenantId, fromTaskId: toDbId(task.id) },
+        orderBy: { createTime: "desc" },
+      }),
+      prisma.taskAttachmentRel.findMany({
+        where: { tenantId: ctx.tenantId, taskId: toDbId(task.id) },
+        orderBy: { createTime: "asc" },
+      }),
+      prisma.taskTagRel.findMany({
+        where: { tenantId: ctx.tenantId, taskId: toDbId(task.id) },
+        orderBy: { createTime: "asc" },
+      }),
+    ]);
 
-  const subtasks = db.subtasks.filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId && item.delFlag === "0");
-  const comments = db.comments.filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId && item.delFlag === "0");
+  const collaborators = (await Promise.all(collaboratorRows.map((row) => getActiveUser(ctx, String(row.userId))))).filter(Boolean);
+
+  const commentUsers = new Map<string, Awaited<ReturnType<typeof getActiveUser>>>();
+  for (const row of commentRows) {
+    const key = String(row.commentUserId);
+    if (!commentUsers.has(key)) {
+      commentUsers.set(key, await getActiveUser(ctx, key));
+    }
+  }
+
+  const activityUsers = new Map<string, Awaited<ReturnType<typeof getActiveUser>>>();
+  for (const row of activityRows) {
+    const key = String(row.actionUserId);
+    if (!activityUsers.has(key)) {
+      activityUsers.set(key, await getActiveUser(ctx, key));
+    }
+  }
+
+  const relationTargetIds = relationRows.map((row) => row.toTaskId).filter((value): value is bigint => value != null);
+  const relationTargets =
+    relationTargetIds.length > 0
+      ? await prisma.task.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            id: { in: relationTargetIds },
+            delFlag: "0",
+          },
+          select: {
+            id: true,
+            taskName: true,
+          },
+        })
+      : [];
+  const relationTargetMap = new Map(relationTargets.map((row) => [String(row.id), row.taskName]));
+
+  const attachmentIds = attachmentRelRows.map((row) => row.attachmentId);
+  const attachments =
+    attachmentIds.length > 0
+      ? await prisma.attachment.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            id: { in: attachmentIds },
+            delFlag: "0",
+          },
+          orderBy: { createTime: "desc" },
+        })
+      : [];
+  const attachmentMap = new Map(attachments.map((row) => [String(row.id), toAttachment(row)]));
+
+  const tagIds = tagRelRows.map((row) => row.tagId);
+  const tags =
+    tagIds.length > 0
+      ? await prisma.tag.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            id: { in: tagIds },
+            delFlag: "0",
+          },
+          orderBy: { createTime: "asc" },
+        })
+      : [];
+  const tagMap = new Map(tags.map((row) => [String(row.id), toTag(row)]));
 
   return {
     ...task,
-    project: task.projectId ? getProject(ctx.tenantId, task.projectId) : null,
-    assignee: task.assigneeUserId ? db.users.find((user) => user.userId === task.assigneeUserId) : null,
+    project,
+    assignee,
+    creator,
     collaborators,
-    tags,
-    attachments,
-    isFavorite: db.taskFavorites.some(
-      (item) => item.taskId === task.id && item.userId === ctx.userId && item.tenantId === ctx.tenantId,
-    ),
     subtaskSummary: {
-      total: subtasks.length,
-      completed: subtasks.filter((item) => item.status === "1").length,
+      total: subtaskRows.length,
+      completed: subtaskRows.filter((row) => row.status === "1").length,
     },
-    commentCount: comments.length,
+    subtasks: subtaskRows.map((row) => toSubtask(row)),
+    comments: commentRows.map((row) => ({
+      ...toTaskComment(row),
+      user: commentUsers.get(String(row.commentUserId)) ?? null,
+    })),
+    activities: activityRows.map((row) => ({
+      ...toTaskActivity(row),
+      user: activityUsers.get(String(row.actionUserId)) ?? null,
+    })),
+    relations: relationRows.map((row) => ({
+      id: fromDbId(row.id)!,
+      relationType: row.relationType,
+      targetId: fromDbId(row.toTaskId),
+      targetTitle: (row.toTaskId && relationTargetMap.get(String(row.toTaskId))) || "关联任务",
+      targetUrl: undefined,
+      createTime: row.createTime.toISOString(),
+    })),
+    attachments: attachmentRelRows
+      .map((row) => attachmentMap.get(String(row.attachmentId)))
+      .filter((item): item is Attachment => Boolean(item)),
+    tags: tagRelRows.map((row) => tagMap.get(String(row.tagId))).filter((item): item is Tag => Boolean(item)),
+    isFavorite: false,
+    dueText: buildDueText(task),
+    dueCategory: buildDueCategory(task.dueTime),
   };
-};
+}
 
-type DecoratedTask = ReturnType<typeof decorateTask>;
-
-const ensureTag = (tenantId: string, tagId: number) => {
-  const tag = db.tags.find((item) => item.id === tagId && item.tenantId === tenantId && item.delFlag === "0");
-  if (!tag) {
-    throw new AppError(`Tag ${tagId} not found`, 404);
-  }
-
-  return tag;
-};
-
-const ensureAttachment = (tenantId: string, attachmentId: number) => {
-  const attachment = db.attachments.find(
-    (item) => item.id === attachmentId && item.tenantId === tenantId && item.delFlag === "0",
-  );
-  if (!attachment) {
-    throw new AppError(`Attachment ${attachmentId} not found`, 404);
-  }
-
-  return attachment;
-};
+async function buildTaskListViews(ctx: AuthContext, tasks: Task[]) {
+  return Promise.all(tasks.map((task) => buildTaskView(ctx, task)));
+}
 
 export const taskService = {
-  list(ctx: AuthContext, query: TaskListQuery) {
-    const favorites = new Set(
-      db.taskFavorites
-        .filter((item) => item.tenantId === ctx.tenantId && item.userId === ctx.userId)
-        .map((item) => item.taskId),
-    );
-    const collaboratorTaskIds = new Set(
-      db.taskCollaborators
-        .filter((item) => item.tenantId === ctx.tenantId && item.userId === ctx.userId && item.delFlag === "0")
-        .map((item) => item.taskId),
-    );
-
-    const filtered = db.tasks
-      .filter((task) => {
-        if (task.tenantId !== ctx.tenantId || task.delFlag !== "0") {
-          return false;
-        }
-
-        if (query.projectId && task.projectId !== query.projectId) {
-          return false;
-        }
-
-        if (query.scope === "owned" && task.assigneeUserId !== ctx.userId) {
-          return false;
-        }
-
-        if (query.scope === "created" && task.createBy !== ctx.userId) {
-          return false;
-        }
-
-        if (query.scope === "collaborated" && !collaboratorTaskIds.has(task.id)) {
-          return false;
-        }
-
-        if (query.status && task.status !== query.status) {
-          return false;
-        }
-
-        if (query.priority && task.priority !== query.priority) {
-          return false;
-        }
-
-        if (query.assigneeUserId && task.assigneeUserId !== query.assigneeUserId) {
-          return false;
-        }
-
-        if (query.creatorUserId && task.createBy !== query.creatorUserId) {
-          return false;
-        }
-
-        if (query.favorite === "true" && !favorites.has(task.id)) {
-          return false;
-        }
-
-        if (query.riskLevel && task.riskLevel !== query.riskLevel) {
-          return false;
-        }
-
-        if (query.keyword && !task.taskName.includes(query.keyword)) {
-          return false;
-        }
-
-        if (query.tagId) {
-          const hasTag = db.taskTagRels.some((item) => item.taskId === task.id && item.tagId === query.tagId);
-          if (!hasTag) {
-            return false;
-          }
-        }
-
-        if (query.dueRange && task.dueTime) {
-          const due = new Date(task.dueTime);
-          const today = new Date();
-          if (query.dueRange === "today" && due.toDateString() !== today.toDateString()) {
-            return false;
-          }
-          if (query.dueRange === "overdue" && due >= today) {
-            return false;
-          }
-          if (query.dueRange === "week") {
-            const end = new Date();
-            end.setDate(end.getDate() + 7);
-            if (due < today || due > end) {
-              return false;
-            }
-          }
-        }
-
-        return true;
-      })
-      .map((task) => decorateTask(ctx, task));
-
-    if (query.view === "kanban") {
-      return {
-        notStarted: filtered.filter((item) => item.status === "0"),
-        inProgress: filtered.filter((item) => item.status === "1"),
-        review: filtered.filter((item) => item.status === "2"),
-        completed: filtered.filter((item) => item.status === "3"),
-        delayed: filtered.filter((item) => item.status === "4"),
-      };
+  async list(ctx: AuthContext, query: TaskListQuery) {
+    if (query.projectId) {
+      await ensureProjectAccess(ctx, query.projectId);
     }
 
-    return filtered;
-  },
+    if (query.favorite === "true") {
+      return query.view === "kanban"
+        ? { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] }
+        : [];
+    }
 
-  create(ctx: AuthContext, input: CreateTaskInput) {
-    const project = getProject(ctx.tenantId, input.projectId);
-    ensureProjectMember(ctx, project);
-    const assignee = getActiveUser(ctx.tenantId, input.assigneeUserId);
+    let scopeTaskIds: string[] | null = null;
+    if (query.scope === "collaborated") {
+      const rows = await prisma.taskCollaborator.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: toDbId(ctx.userId),
+          delFlag: "0",
+        },
+        select: {
+          taskId: true,
+        },
+      });
 
-    const task: Task = {
-      id: db.nextId("task"),
-      tenantId: ctx.tenantId,
-      projectId: input.projectId,
-      taskNo: `TASK-${Date.now()}`,
-      taskName: input.taskName,
-      taskDesc: input.taskDesc,
-      assigneeUserId: input.assigneeUserId,
-      assigneeDeptId: assignee?.deptId,
-      creatorUserId: ctx.userId,
-      sourceType: input.sourceType ?? "manual",
-      taskType: input.taskType ?? "task",
-      status: input.progress === 100 ? "3" : "0",
-      priority: input.priority ?? "1",
-      progress: input.progress ?? 0,
-      startTime: input.startTime,
-      dueTime: input.dueTime,
-      estimatedHours: input.estimatedHours,
-      actualHours: input.actualHours,
-      parentTaskId: input.parentTaskId,
-      sortNo: input.sortNo,
-      createDept: ctx.deptId,
-      createBy: ctx.userId,
-      createTime: now(),
-      delFlag: "0",
-    };
+      scopeTaskIds = rows.map((row) => String(row.taskId));
+      if (scopeTaskIds.length === 0) {
+        return query.view === "kanban"
+          ? { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] }
+          : [];
+      }
+    }
 
-    refreshTaskDerivedFields(task);
-    db.tasks.push(task);
+    let tagTaskIds: string[] | null = null;
+    if (query.tagId) {
+      const rows = await prisma.taskTagRel.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          tagId: toDbId(query.tagId),
+        },
+        select: {
+          taskId: true,
+        },
+      });
 
-    input.collaboratorUserIds.forEach((userId) => {
-      const user = getActiveUser(ctx.tenantId, userId);
-      db.taskCollaborators.push({
-        id: db.nextId("taskCollaborator"),
+      tagTaskIds = rows.map((row) => String(row.taskId));
+      if (tagTaskIds.length === 0) {
+        return query.view === "kanban"
+          ? { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] }
+          : [];
+      }
+    }
+
+    const rows = await prisma.task.findMany({
+      where: {
         tenantId: ctx.tenantId,
-        taskId: task.id,
-        userId,
-        deptId: user?.deptId,
-        createBy: ctx.userId,
-        createTime: now(),
         delFlag: "0",
-      });
+        ...(query.projectId ? { projectId: toDbId(query.projectId) } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.priority ? { priority: query.priority } : {}),
+        ...(query.assigneeUserId ? { assigneeUserId: toDbId(query.assigneeUserId) } : {}),
+        ...(query.creatorUserId ? { creatorUserId: toDbId(query.creatorUserId) } : {}),
+        ...(query.riskLevel ? { riskLevel: query.riskLevel } : {}),
+        ...(query.scope === "owned" ? { assigneeUserId: toDbId(ctx.userId) } : {}),
+        ...(query.scope === "created" ? { creatorUserId: toDbId(ctx.userId) } : {}),
+        ...(scopeTaskIds ? { id: { in: scopeTaskIds.map((id) => toDbId(id)) } } : {}),
+        ...(tagTaskIds ? { id: { in: tagTaskIds.map((id) => toDbId(id)) } } : {}),
+        ...(query.keyword
+          ? {
+              OR: [
+                { taskName: { contains: query.keyword, mode: "insensitive" } },
+                { taskDesc: { contains: query.keyword, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+        ...(query.dueRange === "today"
+          ? {
+              dueTime: {
+                gte: new Date(new Date().setHours(0, 0, 0, 0)),
+                lte: new Date(new Date().setHours(23, 59, 59, 999)),
+              },
+            }
+          : {}),
+        ...(query.dueRange === "week"
+          ? {
+              dueTime: {
+                gte: new Date(),
+                lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              },
+            }
+          : {}),
+        ...(query.dueRange === "overdue" ? { dueTime: { lt: new Date() }, status: { not: "3" } } : {}),
+      },
+      orderBy: [{ dueTime: "asc" }, { priority: "desc" }, { createTime: "desc" }],
     });
 
-    input.tagIds.forEach((tagId) => {
-      ensureTag(ctx.tenantId, tagId);
-      db.taskTagRels.push({
-        id: db.nextId("taskTagRel"),
-        tenantId: ctx.tenantId,
-        taskId: task.id,
-        tagId,
-        createBy: ctx.userId,
-        createTime: now(),
-      });
-    });
-
-    input.attachmentIds.forEach((attachmentId) => {
-      ensureAttachment(ctx.tenantId, attachmentId);
-      db.taskAttachmentRels.push({
-        id: db.nextId("taskAttachmentRel"),
-        tenantId: ctx.tenantId,
-        taskId: task.id,
-        attachmentId,
-        createBy: ctx.userId,
-        createTime: now(),
-      });
-    });
-
-    logTaskActivity(ctx, task.id, "create", `Created task ${task.taskName}`);
-    recalcProjectProgress(ctx.tenantId, task.projectId);
-    return decorateTask(ctx, task);
-  },
-
-  detail(ctx: AuthContext, id: number) {
-    const task = getTaskOrThrow(ctx.tenantId, id);
-    const project = getProject(ctx.tenantId, task.projectId);
-    ensureProjectMember(ctx, project);
-
-    return {
-      ...decorateTask(ctx, task),
-      comments: this.listComments(ctx, id),
-      subtasks: this.listSubtasks(ctx, id),
-      activities: this.listActivities(ctx, id),
-      relations: this.listRelations(ctx, id),
-    };
-  },
-
-  update(ctx: AuthContext, id: number, input: UpdateTaskInput) {
-    const task = getTaskOrThrow(ctx.tenantId, id);
-    ensureTaskEditor(ctx, task);
-
-    if (input.projectId !== undefined) {
-      const project = getProject(ctx.tenantId, input.projectId);
-      ensureProjectMember(ctx, project);
-      task.projectId = input.projectId;
+    const views = await buildTaskListViews(ctx, rows.map((row) => toTask(row)));
+    if (query.view === "kanban") {
+      return views.reduce<Record<string, typeof views>>(
+        (acc, item) => {
+          const key = statusKanbanMap[item.status] ?? "notStarted";
+          acc[key].push(item);
+          return acc;
+        },
+        { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] },
+      );
     }
 
-    if (input.assigneeUserId !== undefined) {
-      const assignee = getActiveUser(ctx.tenantId, input.assigneeUserId);
-      task.assigneeUserId = input.assigneeUserId;
-      task.assigneeDeptId = assignee?.deptId;
+    return views;
+  },
+
+  async create(ctx: AuthContext, input: CreateTaskInput) {
+    await ensureProjectAccess(ctx, input.projectId);
+
+    const assignee = await getActiveUser(ctx, input.assigneeUserId);
+    if (input.assigneeUserId && !assignee) {
+      throw new AppError("Assignee not found", 404);
     }
 
-    Object.assign(task, {
-      taskName: input.taskName ?? task.taskName,
-      taskDesc: input.taskDesc ?? task.taskDesc,
-      sourceType: input.sourceType ?? task.sourceType,
-      taskType: input.taskType ?? task.taskType,
-      priority: input.priority ?? task.priority,
-      progress: input.progress ?? task.progress,
-      startTime: input.startTime ?? task.startTime,
-      dueTime: input.dueTime ?? task.dueTime,
-      estimatedHours: input.estimatedHours ?? task.estimatedHours,
-      actualHours: input.actualHours ?? task.actualHours,
-      parentTaskId: input.parentTaskId ?? task.parentTaskId,
-      sortNo: input.sortNo ?? task.sortNo,
-      status: input.status ?? task.status,
-      riskLevel: input.riskLevel ?? task.riskLevel,
-      updateBy: ctx.userId,
-      updateTime: now(),
+    const now = new Date();
+
+    let created = await prisma.task.create({
+      data: {
+        tenantId: ctx.tenantId,
+        projectId: input.projectId ? toDbId(input.projectId) : null,
+        taskName: input.taskName,
+        taskDesc: input.taskDesc,
+        assigneeUserId: input.assigneeUserId ? toDbId(input.assigneeUserId) : null,
+        assigneeDeptId: assignee?.deptId ? toDbId(assignee.deptId) : null,
+        creatorUserId: toDbId(ctx.userId),
+        status: DEFAULT_STATUS,
+        priority: input.priority ?? DEFAULT_PRIORITY,
+        progress: new Prisma.Decimal(input.progress ?? 0),
+        startTime: input.startTime ? new Date(input.startTime) : null,
+        dueTime: input.dueTime ? new Date(input.dueTime) : null,
+        finishTime: null,
+        riskLevel: "0",
+        parentTaskId: input.parentTaskId ? toDbId(input.parentTaskId) : null,
+        createDept: ctx.deptId ? toDbId(ctx.deptId) : null,
+        createBy: toDbId(ctx.userId),
+        createTime: now,
+        delFlag: "0",
+      },
+    });
+
+    if (!created.taskNo) {
+      created = await prisma.task.update({
+        where: { id: created.id },
+        data: { taskNo: `TASK-${String(created.id)}` },
+      });
+    }
+
+    for (const userId of input.collaboratorUserIds) {
+      const collaborator = await getActiveUser(ctx, userId);
+      if (!collaborator) continue;
+
+      await prisma.taskCollaborator.create({
+        data: {
+          tenantId: ctx.tenantId,
+          taskId: created.id,
+          userId: toDbId(userId),
+          deptId: collaborator.deptId ? toDbId(collaborator.deptId) : null,
+          createBy: toDbId(ctx.userId),
+          createTime: now,
+          delFlag: "0",
+        },
+      });
+    }
+
+    for (const tagId of input.tagIds) {
+      await ensureTagExists(ctx, tagId);
+      await prisma.taskTagRel.create({
+        data: {
+          tenantId: ctx.tenantId,
+          taskId: created.id,
+          tagId: toDbId(tagId),
+          createBy: toDbId(ctx.userId),
+          createTime: now,
+        },
+      });
+    }
+
+    for (const attachmentId of input.attachmentIds) {
+      await ensureAttachmentExists(ctx, attachmentId);
+      await prisma.taskAttachmentRel.create({
+        data: {
+          tenantId: ctx.tenantId,
+          taskId: created.id,
+          attachmentId: toDbId(attachmentId),
+          createBy: toDbId(ctx.userId),
+          createTime: now,
+        },
+      });
+    }
+
+    await logTaskActivity(ctx, String(created.id), "create", `创建任务：${input.taskName}`);
+    await refreshProjectProgress(ctx, fromDbId(created.projectId));
+
+    return buildTaskView(ctx, toTask(created));
+  },
+
+  async detail(ctx: AuthContext, id: string) {
+    const task = await getTaskOrThrow(ctx, id);
+    return buildTaskView(ctx, toTask(task));
+  },
+
+  async update(ctx: AuthContext, id: string, input: UpdateTaskInput) {
+    const existing = await getTaskOrThrow(ctx, id);
+    const nextProjectId = input.projectId ?? fromDbId(existing.projectId);
+
+    await ensureProjectAccess(ctx, nextProjectId);
+
+    const nextAssigneeUserId = input.assigneeUserId ?? fromDbId(existing.assigneeUserId);
+    const assignee = await getActiveUser(ctx, nextAssigneeUserId);
+
+    const updated = await prisma.task.update({
+      where: { id: existing.id },
+      data: {
+        projectId: nextProjectId ? toDbId(nextProjectId) : null,
+        taskName: input.taskName ?? undefined,
+        taskDesc: input.taskDesc ?? undefined,
+        assigneeUserId: nextAssigneeUserId ? toDbId(nextAssigneeUserId) : null,
+        assigneeDeptId: assignee?.deptId ? toDbId(assignee.deptId) : null,
+        status: input.status ?? undefined,
+        priority: input.priority ?? undefined,
+        progress: typeof input.progress === "number" ? new Prisma.Decimal(input.progress) : undefined,
+        startTime: input.startTime ? new Date(input.startTime) : input.startTime === undefined ? undefined : null,
+        dueTime: input.dueTime ? new Date(input.dueTime) : input.dueTime === undefined ? undefined : null,
+        finishTime: input.status === undefined ? undefined : input.status === "3" ? new Date() : null,
+        riskLevel: input.riskLevel ?? undefined,
+        parentTaskId:
+          input.parentTaskId ? toDbId(input.parentTaskId) : input.parentTaskId === undefined ? undefined : null,
+        updateBy: toDbId(ctx.userId),
+        updateTime: new Date(),
+      },
     });
 
     if (input.collaboratorUserIds) {
-      db.taskCollaborators
-        .filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId && item.delFlag === "0")
-        .forEach((item) => {
-          item.delFlag = "1";
-        });
-
-      input.collaboratorUserIds.forEach((userId) => {
-        const user = getActiveUser(ctx.tenantId, userId);
-        db.taskCollaborators.push({
-          id: db.nextId("taskCollaborator"),
+      await prisma.taskCollaborator.deleteMany({
+        where: {
           tenantId: ctx.tenantId,
-          taskId: task.id,
-          userId,
-          deptId: user?.deptId,
-          createBy: ctx.userId,
-          createTime: now(),
-          delFlag: "0",
-        });
+          taskId: existing.id,
+        },
       });
+
+      for (const userId of input.collaboratorUserIds) {
+        const collaborator = await getActiveUser(ctx, userId);
+        if (!collaborator) continue;
+
+        await prisma.taskCollaborator.create({
+          data: {
+            tenantId: ctx.tenantId,
+            taskId: existing.id,
+            userId: toDbId(userId),
+            deptId: collaborator.deptId ? toDbId(collaborator.deptId) : null,
+            createBy: toDbId(ctx.userId),
+            createTime: new Date(),
+            delFlag: "0",
+          },
+        });
+      }
     }
 
     if (input.tagIds) {
-      db.taskTagRels
-        .filter((item) => item.taskId === task.id && item.tenantId === ctx.tenantId)
-        .forEach((item) => {
-          const index = db.taskTagRels.indexOf(item);
-          db.taskTagRels.splice(index, 1);
-        });
-
-      input.tagIds.forEach((tagId) => {
-        ensureTag(ctx.tenantId, tagId);
-        db.taskTagRels.push({
-          id: db.nextId("taskTagRel"),
+      await prisma.taskTagRel.deleteMany({
+        where: {
           tenantId: ctx.tenantId,
-          taskId: task.id,
-          tagId,
-          createBy: ctx.userId,
-          createTime: now(),
+          taskId: existing.id,
+        },
+      });
+
+      for (const tagId of input.tagIds) {
+        await ensureTagExists(ctx, tagId);
+        await prisma.taskTagRel.create({
+          data: {
+            tenantId: ctx.tenantId,
+            taskId: existing.id,
+            tagId: toDbId(tagId),
+            createBy: toDbId(ctx.userId),
+            createTime: new Date(),
+          },
         });
+      }
+    }
+
+    if (input.attachmentIds) {
+      await prisma.taskAttachmentRel.deleteMany({
+        where: {
+          tenantId: ctx.tenantId,
+          taskId: existing.id,
+        },
       });
+
+      for (const attachmentId of input.attachmentIds) {
+        await ensureAttachmentExists(ctx, attachmentId);
+        await prisma.taskAttachmentRel.create({
+          data: {
+            tenantId: ctx.tenantId,
+            taskId: existing.id,
+            attachmentId: toDbId(attachmentId),
+            createBy: toDbId(ctx.userId),
+            createTime: new Date(),
+          },
+        });
+      }
     }
 
-    refreshTaskDerivedFields(task);
-    logTaskActivity(ctx, task.id, "update", `Updated task ${task.taskName}`);
-    recalcProjectProgress(ctx.tenantId, task.projectId);
-    return decorateTask(ctx, task);
+    await logTaskActivity(ctx, id, "update", `更新任务：${updated.taskName}`);
+    await refreshProjectProgress(ctx, fromDbId(existing.projectId));
+    if (fromDbId(existing.projectId) !== fromDbId(updated.projectId)) {
+      await refreshProjectProgress(ctx, fromDbId(updated.projectId));
+    }
+
+    return buildTaskView(ctx, toTask(updated));
   },
 
-  remove(ctx: AuthContext, id: number) {
-    const task = getTaskOrThrow(ctx.tenantId, id);
-    ensureTaskEditor(ctx, task);
-    task.delFlag = "1";
-    task.updateBy = ctx.userId;
-    task.updateTime = now();
-    logTaskActivity(ctx, task.id, "delete", `Deleted task ${task.taskName}`);
-    recalcProjectProgress(ctx.tenantId, task.projectId);
+  async remove(ctx: AuthContext, id: string) {
+    const task = await getTaskOrThrow(ctx, id);
+
+    await prisma.task.update({
+      where: { id: task.id },
+      data: {
+        delFlag: "1",
+        updateBy: toDbId(ctx.userId),
+        updateTime: new Date(),
+      },
+    });
+
+    await logTaskActivity(ctx, id, "delete", `删除任务：${task.taskName}`);
+    await refreshProjectProgress(ctx, fromDbId(task.projectId));
     return { success: true };
   },
 
-  updateStatus(ctx: AuthContext, id: number, input: StatusInput) {
-    return this.update(ctx, id, { status: input.status });
+  async updateStatus(ctx: AuthContext, id: string, input: StatusInput) {
+    return this.update(ctx, id, {
+      status: input.status,
+      ...(input.status === "3" ? { progress: 100 } : {}),
+    });
   },
 
-  favorite(ctx: AuthContext, id: number) {
-    const task = getTaskOrThrow(ctx.tenantId, id);
-    ensureTaskCommentPermission(ctx, task);
-    const exists = db.taskFavorites.find((item) => item.tenantId === ctx.tenantId && item.taskId === id && item.userId === ctx.userId);
-    if (!exists) {
-      db.taskFavorites.push({
-        id: db.nextId("taskFavorite"),
-        tenantId: ctx.tenantId,
-        taskId: id,
-        userId: ctx.userId,
-        createTime: now(),
-      });
-    }
-
+  async favorite(_ctx: AuthContext, _id: string) {
     return { success: true };
   },
 
-  unfavorite(ctx: AuthContext, id: number) {
-    const index = db.taskFavorites.findIndex(
-      (item) => item.tenantId === ctx.tenantId && item.taskId === id && item.userId === ctx.userId,
-    );
-    if (index >= 0) {
-      db.taskFavorites.splice(index, 1);
-    }
-
+  async unfavorite(_ctx: AuthContext, _id: string) {
     return { success: true };
   },
 
-  dashboard(ctx: AuthContext) {
-    const all = this.list(ctx, { view: "list" }) as DecoratedTask[];
-    const today = this.mustDoToday(ctx);
-    const owned = this.list(ctx, { scope: "owned", view: "list" }) as DecoratedTask[];
-    const created = this.list(ctx, { scope: "created", view: "list" }) as DecoratedTask[];
-    const favorite = this.list(ctx, { favorite: "true", view: "list" }) as DecoratedTask[];
-    const risk = this.riskList(ctx);
+  async dashboard(ctx: AuthContext) {
+    const [today, owned, created, risk] = await Promise.all([
+      this.mustDoToday(ctx),
+      this.list(ctx, { scope: "owned", dueRange: "week" }),
+      this.list(ctx, { scope: "created", dueRange: "week" }),
+      this.riskList(ctx),
+    ]);
 
     return {
       today,
-      owned,
-      created,
-      favorite,
+      owned: Array.isArray(owned) ? owned.slice(0, 6) : [],
+      created: Array.isArray(created) ? created.slice(0, 6) : [],
+      favorite: [],
       risk,
       summary: {
-        total: all.length,
-        owned: owned.length,
+        total: today.length + risk.length,
+        owned: Array.isArray(owned) ? owned.length : 0,
         today: today.length,
         risk: risk.length,
       },
     };
   },
 
-  mustDoToday(ctx: AuthContext) {
-    return (this.list(ctx, { scope: "owned", view: "list" }) as DecoratedTask[]).filter((item) => {
-      if (!item.dueTime) {
-        return false;
-      }
-
-      const dueDate = new Date(item.dueTime).toDateString();
-      const today = new Date().toDateString();
-      return dueDate === today || new Date(item.dueTime) < new Date();
-    });
+  async mustDoToday(ctx: AuthContext) {
+    const result = await this.list(ctx, { scope: "owned", dueRange: "today" });
+    return Array.isArray(result) ? result : [];
   },
 
-  riskList(ctx: AuthContext) {
-    return (this.list(ctx, { view: "list" }) as DecoratedTask[]).filter((item) => ["2", "3"].includes(item.riskLevel ?? ""));
+  async riskList(ctx: AuthContext) {
+    const [riskRows, overdueRows] = await Promise.all([
+      this.list(ctx, { riskLevel: "2" }),
+      this.list(ctx, { dueRange: "overdue" }),
+    ]);
+
+    const merged = [...(Array.isArray(riskRows) ? riskRows : []), ...(Array.isArray(overdueRows) ? overdueRows : [])];
+    return Array.from(new Map(merged.map((item) => [item.id, item])).values()).slice(0, 20);
   },
 
-  todo(ctx: AuthContext, query: TaskListQuery) {
+  async todo(ctx: AuthContext, query: TaskListQuery) {
     return this.list(ctx, query);
   },
 
-  listSubtasks(ctx: AuthContext, taskId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskCommentPermission(ctx, task);
-    return db.subtasks.filter((item) => item.taskId === taskId && item.tenantId === ctx.tenantId && item.delFlag === "0");
-  },
+  async listSubtasks(ctx: AuthContext, taskId: string) {
+    await getTaskOrThrow(ctx, taskId);
 
-  createSubtask(ctx: AuthContext, taskId: number, input: SubtaskInput) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskEditor(ctx, task);
-    const subtask: Subtask = {
-      id: db.nextId("subtask"),
-      tenantId: ctx.tenantId,
-      taskId,
-      subtaskName: input.subtaskName,
-      status: input.status ?? "0",
-      sortNo: input.sortNo,
-      createBy: ctx.userId,
-      createTime: now(),
-      delFlag: "0",
-    };
-    db.subtasks.push(subtask);
-    logTaskActivity(ctx, taskId, "add_subtask", `Added subtask ${subtask.subtaskName}`);
-    return this.listSubtasks(ctx, taskId);
-  },
-
-  updateSubtask(ctx: AuthContext, id: number, input: Partial<SubtaskInput>) {
-    const subtask = db.subtasks.find((item) => item.id === id && item.tenantId === ctx.tenantId && item.delFlag === "0");
-    if (!subtask) {
-      throw new AppError("Subtask not found", 404);
-    }
-
-    const task = getTaskOrThrow(ctx.tenantId, subtask.taskId);
-    ensureTaskEditor(ctx, task);
-    subtask.subtaskName = input.subtaskName ?? subtask.subtaskName;
-    subtask.status = input.status ?? subtask.status;
-    subtask.sortNo = input.sortNo ?? subtask.sortNo;
-    subtask.updateBy = ctx.userId;
-    subtask.updateTime = now();
-    logTaskActivity(ctx, subtask.taskId, "update_subtask", `Updated subtask ${subtask.subtaskName}`);
-    return subtask;
-  },
-
-  deleteSubtask(ctx: AuthContext, id: number) {
-    const subtask = db.subtasks.find((item) => item.id === id && item.tenantId === ctx.tenantId && item.delFlag === "0");
-    if (!subtask) {
-      throw new AppError("Subtask not found", 404);
-    }
-
-    const task = getTaskOrThrow(ctx.tenantId, subtask.taskId);
-    ensureTaskEditor(ctx, task);
-    subtask.delFlag = "1";
-    logTaskActivity(ctx, subtask.taskId, "delete_subtask", `Deleted subtask ${subtask.subtaskName}`);
-    return { success: true };
-  },
-
-  listComments(ctx: AuthContext, taskId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskCommentPermission(ctx, task);
-    return db.comments
-      .filter((item) => item.taskId === taskId && item.tenantId === ctx.tenantId && item.delFlag === "0")
-      .map((item) => ({
-        ...item,
-        user: db.users.find((user) => user.userId === item.commentUserId),
-      }));
-  },
-
-  createComment(ctx: AuthContext, taskId: number, input: CommentInput) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskCommentPermission(ctx, task);
-    const comment: TaskComment = {
-      id: db.nextId("taskComment"),
-      tenantId: ctx.tenantId,
-      taskId,
-      commentUserId: ctx.userId,
-      content: input.content,
-      parentCommentId: input.parentCommentId,
-      createTime: now(),
-      delFlag: "0",
-    };
-    db.comments.push(comment);
-    logTaskActivity(ctx, taskId, "comment", "Added comment");
-    return comment;
-  },
-
-  updateComment(ctx: AuthContext, id: number, input: CommentInput) {
-    const comment = db.comments.find((item) => item.id === id && item.tenantId === ctx.tenantId && item.delFlag === "0");
-    if (!comment) {
-      throw new AppError("Comment not found", 404);
-    }
-
-    if (comment.commentUserId !== ctx.userId && !isManager(ctx)) {
-      throw new AppError("No permission to edit comment", 403);
-    }
-
-    comment.content = input.content;
-    return comment;
-  },
-
-  deleteComment(ctx: AuthContext, id: number) {
-    const comment = db.comments.find((item) => item.id === id && item.tenantId === ctx.tenantId && item.delFlag === "0");
-    if (!comment) {
-      throw new AppError("Comment not found", 404);
-    }
-
-    if (comment.commentUserId !== ctx.userId && !isManager(ctx)) {
-      throw new AppError("No permission to delete comment", 403);
-    }
-
-    comment.delFlag = "1";
-    return { success: true };
-  },
-
-  uploadFile(ctx: AuthContext, input: UploadFileInput) {
-    const attachment: Attachment = {
-      id: db.nextId("attachment"),
-      tenantId: ctx.tenantId,
-      fileName: input.fileName,
-      fileUrl: input.fileUrl,
-      fileSize: input.fileSize,
-      fileType: input.fileType,
-      storageType: input.storageType ?? "OSS",
-      uploadUserId: ctx.userId,
-      createTime: now(),
-      delFlag: "0",
-    };
-    db.attachments.push(attachment);
-    return attachment;
-  },
-
-  listAttachments(ctx: AuthContext, taskId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskCommentPermission(ctx, task);
-    const ids = db.taskAttachmentRels
-      .filter((item) => item.taskId === taskId && item.tenantId === ctx.tenantId)
-      .map((item) => item.attachmentId);
-
-    return db.attachments.filter((item) => ids.includes(item.id) && item.tenantId === ctx.tenantId && item.delFlag === "0");
-  },
-
-  bindAttachments(ctx: AuthContext, taskId: number, input: BindAttachmentsInput) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskEditor(ctx, task);
-    input.attachmentIds.forEach((attachmentId) => {
-      ensureAttachment(ctx.tenantId, attachmentId);
-      const exists = db.taskAttachmentRels.some(
-        (item) => item.tenantId === ctx.tenantId && item.taskId === taskId && item.attachmentId === attachmentId,
-      );
-      if (!exists) {
-        db.taskAttachmentRels.push({
-          id: db.nextId("taskAttachmentRel"),
-          tenantId: ctx.tenantId,
-          taskId,
-          attachmentId,
-          createBy: ctx.userId,
-          createTime: now(),
-        });
-      }
+    const rows = await prisma.subtask.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+        delFlag: "0",
+      },
+      orderBy: [{ sortNo: "asc" }, { createTime: "asc" }],
     });
 
+    return rows.map((row) => toSubtask(row));
+  },
+
+  async createSubtask(ctx: AuthContext, taskId: string, input: SubtaskInput) {
+    await getTaskOrThrow(ctx, taskId);
+
+    const row = await prisma.subtask.create({
+      data: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+        subtaskName: input.subtaskName,
+        status: input.status ?? "0",
+        sortNo: input.sortNo ?? null,
+        createBy: toDbId(ctx.userId),
+        createTime: new Date(),
+        delFlag: "0",
+      },
+    });
+
+    await logTaskActivity(ctx, taskId, "subtask_create", `新增子任务：${input.subtaskName}`);
+    return toSubtask(row);
+  },
+
+  async updateSubtask(ctx: AuthContext, id: string, input: Partial<SubtaskInput>) {
+    const row = await prisma.subtask.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        id: toDbId(id),
+        delFlag: "0",
+      },
+    });
+
+    if (!row) {
+      throw new AppError("Subtask not found", 404);
+    }
+
+    await getTaskOrThrow(ctx, String(row.taskId));
+
+    const updated = await prisma.subtask.update({
+      where: { id: row.id },
+      data: {
+        subtaskName: input.subtaskName ?? undefined,
+        status: input.status ?? undefined,
+        sortNo: input.sortNo ?? undefined,
+        updateBy: toDbId(ctx.userId),
+        updateTime: new Date(),
+      },
+    });
+
+    await logTaskActivity(ctx, String(row.taskId), "subtask_update", `更新子任务：${updated.subtaskName}`);
+    return toSubtask(updated);
+  },
+
+  async deleteSubtask(ctx: AuthContext, id: string) {
+    const row = await prisma.subtask.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        id: toDbId(id),
+        delFlag: "0",
+      },
+    });
+
+    if (!row) {
+      throw new AppError("Subtask not found", 404);
+    }
+
+    await getTaskOrThrow(ctx, String(row.taskId));
+
+    await prisma.subtask.update({
+      where: { id: row.id },
+      data: {
+        delFlag: "1",
+        updateBy: toDbId(ctx.userId),
+        updateTime: new Date(),
+      },
+    });
+
+    await logTaskActivity(ctx, String(row.taskId), "subtask_delete", `删除子任务：${row.subtaskName}`);
+    return { success: true };
+  },
+
+  async listComments(ctx: AuthContext, taskId: string) {
+    await getTaskOrThrow(ctx, taskId);
+
+    const rows = await prisma.taskComment.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+        delFlag: "0",
+      },
+      orderBy: { createTime: "desc" },
+    });
+
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...toTaskComment(row),
+        user: await getActiveUser(ctx, String(row.commentUserId)),
+      })),
+    );
+  },
+
+  async createComment(ctx: AuthContext, taskId: string, input: CommentInput) {
+    await getTaskOrThrow(ctx, taskId);
+
+    const row = await prisma.taskComment.create({
+      data: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+        commentUserId: toDbId(ctx.userId),
+        content: input.content,
+        parentCommentId: input.parentCommentId ? toDbId(input.parentCommentId) : null,
+        createTime: new Date(),
+        delFlag: "0",
+      },
+    });
+
+    await logTaskActivity(ctx, taskId, "comment_create", "新增评论");
+    return {
+      ...toTaskComment(row),
+      user: await getActiveUser(ctx, ctx.userId),
+    };
+  },
+
+  async updateComment(ctx: AuthContext, id: string, input: CommentInput) {
+    const row = await prisma.taskComment.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        id: toDbId(id),
+        delFlag: "0",
+      },
+    });
+
+    if (!row) {
+      throw new AppError("Comment not found", 404);
+    }
+
+    if (String(row.commentUserId) !== ctx.userId && !isManager(ctx)) {
+      throw new AppError("No permission to update this comment", 403);
+    }
+
+    const updated = await prisma.taskComment.update({
+      where: { id: row.id },
+      data: {
+        content: input.content,
+        parentCommentId: input.parentCommentId ? toDbId(input.parentCommentId) : null,
+      },
+    });
+
+    await logTaskActivity(ctx, String(row.taskId), "comment_update", "更新评论");
+    return {
+      ...toTaskComment(updated),
+      user: await getActiveUser(ctx, String(updated.commentUserId)),
+    };
+  },
+
+  async deleteComment(ctx: AuthContext, id: string) {
+    const row = await prisma.taskComment.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        id: toDbId(id),
+        delFlag: "0",
+      },
+    });
+
+    if (!row) {
+      throw new AppError("Comment not found", 404);
+    }
+
+    if (String(row.commentUserId) !== ctx.userId && !isManager(ctx)) {
+      throw new AppError("No permission to delete this comment", 403);
+    }
+
+    await prisma.taskComment.update({
+      where: { id: row.id },
+      data: {
+        delFlag: "1",
+      },
+    });
+
+    await logTaskActivity(ctx, String(row.taskId), "comment_delete", "删除评论");
+    return { success: true };
+  },
+
+  async uploadFile(ctx: AuthContext, input: UploadFileInput) {
+    const row = await prisma.attachment.create({
+      data: {
+        tenantId: ctx.tenantId,
+        fileName: input.fileName,
+        fileUrl: input.fileUrl,
+        fileSize: input.fileSize != null ? BigInt(input.fileSize) : null,
+        fileType: input.fileType,
+        storageType: input.storageType,
+        uploadUserId: toDbId(ctx.userId),
+        createTime: new Date(),
+        delFlag: "0",
+      },
+    });
+
+    return toAttachment(row);
+  },
+
+  async listAttachments(ctx: AuthContext, taskId: string) {
+    await getTaskOrThrow(ctx, taskId);
+
+    const rels = await prisma.taskAttachmentRel.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+      },
+      orderBy: { createTime: "desc" },
+    });
+
+    if (rels.length === 0) {
+      return [];
+    }
+
+    const rows = await prisma.attachment.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        id: { in: rels.map((row) => row.attachmentId) },
+        delFlag: "0",
+      },
+      orderBy: { createTime: "desc" },
+    });
+
+    return rows.map((row) => toAttachment(row));
+  },
+
+  async bindAttachments(ctx: AuthContext, taskId: string, input: BindAttachmentsInput) {
+    await getTaskOrThrow(ctx, taskId);
+
+    for (const attachmentId of input.attachmentIds) {
+      await ensureAttachmentExists(ctx, attachmentId);
+
+      const existed = await prisma.taskAttachmentRel.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          taskId: toDbId(taskId),
+          attachmentId: toDbId(attachmentId),
+        },
+      });
+
+      if (!existed) {
+        await prisma.taskAttachmentRel.create({
+          data: {
+            tenantId: ctx.tenantId,
+            taskId: toDbId(taskId),
+            attachmentId: toDbId(attachmentId),
+            createBy: toDbId(ctx.userId),
+            createTime: new Date(),
+          },
+        });
+      }
+    }
+
+    await logTaskActivity(ctx, taskId, "attachment_bind", "绑定附件");
     return this.listAttachments(ctx, taskId);
   },
 
-  unbindAttachment(ctx: AuthContext, taskId: number, attachmentId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskEditor(ctx, task);
-    const index = db.taskAttachmentRels.findIndex(
-      (item) => item.tenantId === ctx.tenantId && item.taskId === taskId && item.attachmentId === attachmentId,
-    );
-    if (index >= 0) {
-      db.taskAttachmentRels.splice(index, 1);
-    }
-    return { success: true };
-  },
+  async unbindAttachment(ctx: AuthContext, taskId: string, attachmentId: string) {
+    await getTaskOrThrow(ctx, taskId);
 
-  deleteAttachment(ctx: AuthContext, attachmentId: number) {
-    const attachment = ensureAttachment(ctx.tenantId, attachmentId);
-    if (attachment.uploadUserId !== ctx.userId && !isManager(ctx)) {
-      throw new AppError("No permission to delete attachment", 403);
-    }
-
-    attachment.delFlag = "1";
-    return { success: true };
-  },
-
-  listTags(ctx: AuthContext) {
-    return db.tags.filter((item) => item.tenantId === ctx.tenantId && item.delFlag === "0");
-  },
-
-  createTag(ctx: AuthContext, input: CreateTagInput) {
-    const tag: Tag = {
-      id: db.nextId("tag"),
-      tenantId: ctx.tenantId,
-      tagName: input.tagName,
-      tagColor: input.tagColor,
-      tagType: input.tagType ?? "task",
-      createBy: ctx.userId,
-      createTime: now(),
-      delFlag: "0",
-    };
-    db.tags.push(tag);
-    return tag;
-  },
-
-  bindTags(ctx: AuthContext, taskId: number, input: BindTagsInput) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskEditor(ctx, task);
-
-    input.tagIds.forEach((tagId) => {
-      ensureTag(ctx.tenantId, tagId);
-      const exists = db.taskTagRels.some((item) => item.tenantId === ctx.tenantId && item.taskId === taskId && item.tagId === tagId);
-      if (!exists) {
-        db.taskTagRels.push({
-          id: db.nextId("taskTagRel"),
-          tenantId: ctx.tenantId,
-          taskId,
-          tagId,
-          createBy: ctx.userId,
-          createTime: now(),
-        });
-      }
+    await prisma.taskAttachmentRel.deleteMany({
+      where: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+        attachmentId: toDbId(attachmentId),
+      },
     });
 
-    return decorateTask(ctx, task).tags;
-  },
-
-  unbindTag(ctx: AuthContext, taskId: number, tagId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskEditor(ctx, task);
-    const index = db.taskTagRels.findIndex(
-      (item) => item.tenantId === ctx.tenantId && item.taskId === taskId && item.tagId === tagId,
-    );
-    if (index >= 0) {
-      db.taskTagRels.splice(index, 1);
-    }
+    await logTaskActivity(ctx, taskId, "attachment_unbind", "解绑附件");
     return { success: true };
   },
 
-  listRelations(ctx: AuthContext, taskId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskCommentPermission(ctx, task);
-    return db.taskRelations.filter((item) => item.taskId === taskId && item.tenantId === ctx.tenantId && item.delFlag === "0");
+  async deleteAttachment(ctx: AuthContext, id: string) {
+    const row = await ensureAttachmentExists(ctx, id);
+
+    await prisma.attachment.update({
+      where: { id: row.id },
+      data: {
+        delFlag: "1",
+      },
+    });
+
+    return { success: true };
   },
 
-  createRelation(ctx: AuthContext, taskId: number, input: RelationInput) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskEditor(ctx, task);
-    const relation = {
-      id: db.nextId("taskRelation"),
-      tenantId: ctx.tenantId,
-      taskId,
-      relationType: input.relationType,
-      targetId: input.targetId,
+  async listTags(ctx: AuthContext) {
+    const rows = await prisma.tag.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        delFlag: "0",
+      },
+      orderBy: [{ tagType: "asc" }, { createTime: "asc" }],
+    });
+
+    return rows.map((row) => toTag(row));
+  },
+
+  async createTag(ctx: AuthContext, input: CreateTagInput) {
+    const row = await prisma.tag.create({
+      data: {
+        tenantId: ctx.tenantId,
+        tagName: input.tagName,
+        tagColor: input.tagColor,
+        tagType: input.tagType ?? "task",
+        createBy: toDbId(ctx.userId),
+        createTime: new Date(),
+        delFlag: "0",
+      },
+    });
+
+    return toTag(row);
+  },
+
+  async bindTags(ctx: AuthContext, taskId: string, input: BindTagsInput) {
+    await getTaskOrThrow(ctx, taskId);
+
+    for (const tagId of input.tagIds) {
+      await ensureTagExists(ctx, tagId);
+
+      const existed = await prisma.taskTagRel.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          taskId: toDbId(taskId),
+          tagId: toDbId(tagId),
+        },
+      });
+
+      if (!existed) {
+        await prisma.taskTagRel.create({
+          data: {
+            tenantId: ctx.tenantId,
+            taskId: toDbId(taskId),
+            tagId: toDbId(tagId),
+            createBy: toDbId(ctx.userId),
+            createTime: new Date(),
+          },
+        });
+      }
+    }
+
+    await logTaskActivity(ctx, taskId, "tag_bind", "绑定标签");
+    return this.detail(ctx, taskId);
+  },
+
+  async unbindTag(ctx: AuthContext, taskId: string, tagId: string) {
+    await getTaskOrThrow(ctx, taskId);
+
+    await prisma.taskTagRel.deleteMany({
+      where: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+        tagId: toDbId(tagId),
+      },
+    });
+
+    await logTaskActivity(ctx, taskId, "tag_unbind", "解绑标签");
+    return { success: true };
+  },
+
+  async listRelations(ctx: AuthContext, taskId: string) {
+    await getTaskOrThrow(ctx, taskId);
+
+    const rows = await prisma.taskRelation.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        fromTaskId: toDbId(taskId),
+      },
+      orderBy: { createTime: "desc" },
+    });
+
+    const targetIds = rows.map((row) => row.toTaskId).filter((value): value is bigint => value != null);
+    const targetTasks =
+      targetIds.length > 0
+        ? await prisma.task.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              id: { in: targetIds },
+              delFlag: "0",
+            },
+            select: {
+              id: true,
+              taskName: true,
+            },
+          })
+        : [];
+    const targetMap = new Map(targetTasks.map((row) => [String(row.id), row.taskName]));
+
+    return rows.map((row) => ({
+      id: fromDbId(row.id)!,
+      relationType: row.relationType,
+      targetId: fromDbId(row.toTaskId),
+      targetTitle: (row.toTaskId && targetMap.get(String(row.toTaskId))) || "关联任务",
+      targetUrl: undefined,
+      createTime: row.createTime.toISOString(),
+    }));
+  },
+
+  async createRelation(ctx: AuthContext, taskId: string, input: RelationInput) {
+    await getTaskOrThrow(ctx, taskId);
+
+    if (!input.targetId) {
+      throw new AppError("Current database schema only supports task-to-task relations", 400);
+    }
+
+    await getTaskOrThrow(ctx, input.targetId);
+
+    const row = await prisma.taskRelation.create({
+      data: {
+        tenantId: ctx.tenantId,
+        fromTaskId: toDbId(taskId),
+        toTaskId: toDbId(input.targetId),
+        relationType: input.relationType,
+        createBy: toDbId(ctx.userId),
+        createTime: new Date(),
+      },
+    });
+
+    await logTaskActivity(ctx, taskId, "relation_create", `新增关联：${input.targetTitle}`);
+    return {
+      id: fromDbId(row.id)!,
+      relationType: row.relationType,
+      targetId: fromDbId(row.toTaskId),
       targetTitle: input.targetTitle,
-      targetUrl: input.targetUrl,
-      createBy: ctx.userId,
-      createTime: now(),
-      delFlag: "0" as const,
+      targetUrl: undefined,
+      createTime: row.createTime.toISOString(),
     };
-    db.taskRelations.push(relation);
-    logTaskActivity(ctx, taskId, "add_relation", `Added relation ${input.targetTitle}`);
-    return relation;
   },
 
-  deleteRelation(ctx: AuthContext, relationId: number) {
-    const relation = db.taskRelations.find((item) => item.id === relationId && item.tenantId === ctx.tenantId && item.delFlag === "0");
-    if (!relation) {
+  async deleteRelation(ctx: AuthContext, id: string) {
+    const row = await prisma.taskRelation.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        id: toDbId(id),
+      },
+    });
+
+    if (!row) {
       throw new AppError("Relation not found", 404);
     }
 
-    const task = getTaskOrThrow(ctx.tenantId, relation.taskId);
-    ensureTaskEditor(ctx, task);
-    relation.delFlag = "1";
+    await getTaskOrThrow(ctx, String(row.fromTaskId));
+    await prisma.taskRelation.delete({ where: { id: row.id } });
+    await logTaskActivity(ctx, String(row.fromTaskId), "relation_delete", "删除关联");
     return { success: true };
   },
 
-  listActivities(ctx: AuthContext, taskId: number) {
-    const task = getTaskOrThrow(ctx.tenantId, taskId);
-    ensureTaskCommentPermission(ctx, task);
-    return db.taskActivities
-      .filter((item) => item.taskId === taskId && item.tenantId === ctx.tenantId)
-      .map((item) => ({
-        ...item,
-        user: db.users.find((user) => user.userId === item.actionUserId),
-      }));
+  async listActivities(ctx: AuthContext, taskId: string) {
+    await getTaskOrThrow(ctx, taskId);
+
+    const rows = await prisma.taskActivity.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        taskId: toDbId(taskId),
+      },
+      orderBy: { createTime: "desc" },
+    });
+
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...toTaskActivity(row),
+        user: await getActiveUser(ctx, String(row.actionUserId)),
+      })),
+    );
   },
 
-  workload(ctx: AuthContext, query: WorkloadQuery) {
+  async workload(ctx: AuthContext, query: WorkloadQuery) {
     const days = query.range === "month" ? 30 : 7;
-    const end = Date.now() + days * 24 * 60 * 60 * 1000;
+    const end = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
-    return db.users
-      .filter((item) => item.tenantId === ctx.tenantId && item.delFlag === "0" && item.status === "0")
-      .map((user) => {
-        const tasks = db.tasks.filter(
-          (task) =>
-            task.tenantId === ctx.tenantId &&
-            task.delFlag === "0" &&
-            task.assigneeUserId === user.userId &&
-            task.status !== "3" &&
-            (!task.dueTime || new Date(task.dueTime).getTime() <= end),
-        );
-        const urgent = tasks.filter((task) => ["2", "3"].includes(task.riskLevel ?? "0")).length;
-        return {
-          userId: user.userId,
-          nickName: user.nickName,
-          taskCount: tasks.length,
-          urgentCount: urgent,
-          loadPercent: Math.min(100, tasks.length * 20 + urgent * 10),
-        };
+    const users = await prisma.user.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        delFlag: "0",
+        status: "0",
+      },
+      orderBy: { userId: "asc" },
+    });
+
+    const result = [];
+    for (const user of users) {
+      const tasks = await prisma.task.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          delFlag: "0",
+          assigneeUserId: user.userId,
+          status: { not: "3" },
+          OR: [{ dueTime: null }, { dueTime: { lte: end } }],
+        },
       });
+
+      const urgentCount = tasks.filter((task) => ["2", "3"].includes(task.riskLevel ?? "0")).length;
+      result.push({
+        userId: String(user.userId),
+        nickName: user.nickName,
+        taskCount: tasks.length,
+        urgentCount,
+        loadPercent: Math.min(100, tasks.length * 20 + urgentCount * 10),
+      });
+    }
+
+    return result;
   },
 };

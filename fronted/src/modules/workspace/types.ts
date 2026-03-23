@@ -18,15 +18,15 @@ export type WorkTask = {
   favorite?: boolean
   scope?: Exclude<TodoScope, 'all'>
   dueCategory?: 'today' | 'week' | 'overdue'
-  projectId?: number
-  ownerId?: number
+  projectId?: string
+  ownerId?: string
   startAt?: string
   dueAt?: string
   progress?: number
   riskLevel?: string
   taskType?: string
   description?: string
-  collaborators?: Array<{ userId: number; nickName: string }>
+  collaborators?: Array<{ userId: string; nickName: string }>
 }
 
 export type RiskTask = {
@@ -120,7 +120,7 @@ export type GanttRow = {
 }
 
 export type WorkloadMember = {
-  userId: number
+  userId: string
   name: string
   value: number
   color: string
@@ -129,5 +129,5 @@ export type WorkloadMember = {
 
 export type SelectOptionItem = {
   label: string
-  value: number
+  value: string
 }

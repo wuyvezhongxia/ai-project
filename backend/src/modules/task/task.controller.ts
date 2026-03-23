@@ -22,177 +22,177 @@ import {
 } from "./task.schemas";
 import { taskService } from "./task.service";
 
-export const listTasks = (req: AuthedRequest, res: Response) => {
+export const listTasks = async (req: AuthedRequest, res: Response) => {
   const query = parseQuery(taskListQuerySchema, req.query);
-  ok(res, taskService.list(req.ctx, query));
+  ok(res, await taskService.list(req.ctx, query));
 };
 
-export const createTask = (req: AuthedRequest, res: Response) => {
+export const createTask = async (req: AuthedRequest, res: Response) => {
   const body = parseBody(createTaskSchema, req.body);
-  ok(res, taskService.create(req.ctx, body), "Task created", 201);
+  ok(res, await taskService.create(req.ctx, body), "Task created", 201);
 };
 
-export const getTaskDetail = (req: AuthedRequest, res: Response) => {
+export const getTaskDetail = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.detail(req.ctx, params.id));
+  ok(res, await taskService.detail(req.ctx, params.id));
 };
 
-export const updateTask = (req: AuthedRequest, res: Response) => {
+export const updateTask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(updateTaskSchema, req.body);
-  ok(res, taskService.update(req.ctx, params.id, body), "Task updated");
+  ok(res, await taskService.update(req.ctx, params.id, body), "Task updated");
 };
 
-export const deleteTask = (req: AuthedRequest, res: Response) => {
+export const deleteTask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.remove(req.ctx, params.id), "Task deleted");
+  ok(res, await taskService.remove(req.ctx, params.id), "Task deleted");
 };
 
-export const updateTaskStatus = (req: AuthedRequest, res: Response) => {
+export const updateTaskStatus = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(taskStatusSchema, req.body);
-  ok(res, taskService.updateStatus(req.ctx, params.id, body), "Task status updated");
+  ok(res, await taskService.updateStatus(req.ctx, params.id, body), "Task status updated");
 };
 
-export const favoriteTask = (req: AuthedRequest, res: Response) => {
+export const favoriteTask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.favorite(req.ctx, params.id), "Task favorited");
+  ok(res, await taskService.favorite(req.ctx, params.id), "Task favorited");
 };
 
-export const unfavoriteTask = (req: AuthedRequest, res: Response) => {
+export const unfavoriteTask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.unfavorite(req.ctx, params.id), "Task unfavorited");
+  ok(res, await taskService.unfavorite(req.ctx, params.id), "Task unfavorited");
 };
 
-export const getTaskDashboard = (req: AuthedRequest, res: Response) => {
-  ok(res, taskService.dashboard(req.ctx));
+export const getTaskDashboard = async (req: AuthedRequest, res: Response) => {
+  ok(res, await taskService.dashboard(req.ctx));
 };
 
-export const getMustDoToday = (req: AuthedRequest, res: Response) => {
-  ok(res, taskService.mustDoToday(req.ctx));
+export const getMustDoToday = async (req: AuthedRequest, res: Response) => {
+  ok(res, await taskService.mustDoToday(req.ctx));
 };
 
-export const getRiskTasks = (req: AuthedRequest, res: Response) => {
-  ok(res, taskService.riskList(req.ctx));
+export const getRiskTasks = async (req: AuthedRequest, res: Response) => {
+  ok(res, await taskService.riskList(req.ctx));
 };
 
-export const getTodoTasks = (req: AuthedRequest, res: Response) => {
+export const getTodoTasks = async (req: AuthedRequest, res: Response) => {
   const query = parseQuery(taskListQuerySchema, req.query);
-  ok(res, taskService.todo(req.ctx, query));
+  ok(res, await taskService.todo(req.ctx, query));
 };
 
-export const listSubtasks = (req: AuthedRequest, res: Response) => {
+export const listSubtasks = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.listSubtasks(req.ctx, params.id));
+  ok(res, await taskService.listSubtasks(req.ctx, params.id));
 };
 
-export const createSubtask = (req: AuthedRequest, res: Response) => {
+export const createSubtask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(subtaskSchema, req.body);
-  ok(res, taskService.createSubtask(req.ctx, params.id, body), "Subtask created", 201);
+  ok(res, await taskService.createSubtask(req.ctx, params.id, body), "Subtask created", 201);
 };
 
-export const updateSubtask = (req: AuthedRequest, res: Response) => {
+export const updateSubtask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(subtaskSchema.partial(), req.body);
-  ok(res, taskService.updateSubtask(req.ctx, params.id, body), "Subtask updated");
+  ok(res, await taskService.updateSubtask(req.ctx, params.id, body), "Subtask updated");
 };
 
-export const deleteSubtask = (req: AuthedRequest, res: Response) => {
+export const deleteSubtask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.deleteSubtask(req.ctx, params.id), "Subtask deleted");
+  ok(res, await taskService.deleteSubtask(req.ctx, params.id), "Subtask deleted");
 };
 
-export const listComments = (req: AuthedRequest, res: Response) => {
+export const listComments = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.listComments(req.ctx, params.id));
+  ok(res, await taskService.listComments(req.ctx, params.id));
 };
 
-export const createComment = (req: AuthedRequest, res: Response) => {
-  const params = parseParams(idParamsSchema, req.params);
-  const body = parseBody(commentSchema, req.body);
-  ok(res, taskService.createComment(req.ctx, params.id, body), "Comment created", 201);
-};
-
-export const updateComment = (req: AuthedRequest, res: Response) => {
+export const createComment = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(commentSchema, req.body);
-  ok(res, taskService.updateComment(req.ctx, params.id, body), "Comment updated");
+  ok(res, await taskService.createComment(req.ctx, params.id, body), "Comment created", 201);
 };
 
-export const deleteComment = (req: AuthedRequest, res: Response) => {
+export const updateComment = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.deleteComment(req.ctx, params.id), "Comment deleted");
+  const body = parseBody(commentSchema, req.body);
+  ok(res, await taskService.updateComment(req.ctx, params.id, body), "Comment updated");
 };
 
-export const uploadFile = (req: AuthedRequest, res: Response) => {
+export const deleteComment = async (req: AuthedRequest, res: Response) => {
+  const params = parseParams(idParamsSchema, req.params);
+  ok(res, await taskService.deleteComment(req.ctx, params.id), "Comment deleted");
+};
+
+export const uploadFile = async (req: AuthedRequest, res: Response) => {
   const body = parseBody(uploadFileSchema, req.body);
-  ok(res, taskService.uploadFile(req.ctx, body), "Attachment uploaded", 201);
+  ok(res, await taskService.uploadFile(req.ctx, body), "Attachment uploaded", 201);
 };
 
-export const listAttachments = (req: AuthedRequest, res: Response) => {
+export const listAttachments = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.listAttachments(req.ctx, params.id));
+  ok(res, await taskService.listAttachments(req.ctx, params.id));
 };
 
-export const bindAttachments = (req: AuthedRequest, res: Response) => {
+export const bindAttachments = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(bindAttachmentsSchema, req.body);
-  ok(res, taskService.bindAttachments(req.ctx, params.id, body), "Attachments bound", 201);
+  ok(res, await taskService.bindAttachments(req.ctx, params.id, body), "Attachments bound", 201);
 };
 
-export const unbindAttachment = (req: AuthedRequest, res: Response) => {
+export const unbindAttachment = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(attachmentIdParamsSchema, req.params);
-  ok(res, taskService.unbindAttachment(req.ctx, params.id, params.attachmentId), "Attachment unbound");
+  ok(res, await taskService.unbindAttachment(req.ctx, params.id, params.attachmentId), "Attachment unbound");
 };
 
-export const deleteAttachment = (req: AuthedRequest, res: Response) => {
+export const deleteAttachment = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.deleteAttachment(req.ctx, params.id), "Attachment deleted");
+  ok(res, await taskService.deleteAttachment(req.ctx, params.id), "Attachment deleted");
 };
 
-export const listTags = (req: AuthedRequest, res: Response) => {
-  ok(res, taskService.listTags(req.ctx));
+export const listTags = async (req: AuthedRequest, res: Response) => {
+  ok(res, await taskService.listTags(req.ctx));
 };
 
-export const createTag = (req: AuthedRequest, res: Response) => {
+export const createTag = async (req: AuthedRequest, res: Response) => {
   const body = parseBody(createTagSchema, req.body);
-  ok(res, taskService.createTag(req.ctx, body), "Tag created", 201);
+  ok(res, await taskService.createTag(req.ctx, body), "Tag created", 201);
 };
 
-export const bindTags = (req: AuthedRequest, res: Response) => {
+export const bindTags = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(bindTagsSchema, req.body);
-  ok(res, taskService.bindTags(req.ctx, params.id, body), "Tags bound");
+  ok(res, await taskService.bindTags(req.ctx, params.id, body), "Tags bound");
 };
 
-export const unbindTag = (req: AuthedRequest, res: Response) => {
+export const unbindTag = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(tagIdParamsSchema, req.params);
-  ok(res, taskService.unbindTag(req.ctx, params.id, params.tagId), "Tag unbound");
+  ok(res, await taskService.unbindTag(req.ctx, params.id, params.tagId), "Tag unbound");
 };
 
-export const listRelations = (req: AuthedRequest, res: Response) => {
+export const listRelations = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.listRelations(req.ctx, params.id));
+  ok(res, await taskService.listRelations(req.ctx, params.id));
 };
 
-export const createRelation = (req: AuthedRequest, res: Response) => {
+export const createRelation = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
   const body = parseBody(relationSchema, req.body);
-  ok(res, taskService.createRelation(req.ctx, params.id, body), "Relation created", 201);
+  ok(res, await taskService.createRelation(req.ctx, params.id, body), "Relation created", 201);
 };
 
-export const deleteRelation = (req: AuthedRequest, res: Response) => {
+export const deleteRelation = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(relationIdParamsSchema, req.params);
-  ok(res, taskService.deleteRelation(req.ctx, params.id), "Relation deleted");
+  ok(res, await taskService.deleteRelation(req.ctx, params.id), "Relation deleted");
 };
 
-export const listActivities = (req: AuthedRequest, res: Response) => {
+export const listActivities = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  ok(res, taskService.listActivities(req.ctx, params.id));
+  ok(res, await taskService.listActivities(req.ctx, params.id));
 };
 
-export const getWorkload = (req: AuthedRequest, res: Response) => {
+export const getWorkload = async (req: AuthedRequest, res: Response) => {
   const query = parseQuery(workloadQuerySchema, req.query);
-  ok(res, taskService.workload(req.ctx, query));
+  ok(res, await taskService.workload(req.ctx, query));
 };

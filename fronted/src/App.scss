@@ -603,6 +603,15 @@
   border-bottom: 1px solid rgba(136, 148, 196, 0.08);
 }
 
+.todo-list-row-clickable {
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.todo-list-row-clickable:hover {
+  background: rgba(79, 98, 175, 0.08);
+}
+
 .todo-list-row:last-child {
   border-bottom: 0;
 }
@@ -661,6 +670,22 @@
   color: #f7f8ff;
 }
 
+.drawer-title-input {
+  margin-left: -12px;
+}
+
+.drawer-title-input .ant-input {
+  padding-inline: 12px;
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #f7f8ff;
+}
+
+.drawer-title-input .ant-input::placeholder {
+  color: rgba(247, 248, 255, 0.45);
+}
+
 .detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.9fr);
@@ -698,6 +723,44 @@
 .rich-card ol {
   padding-left: 20px;
   color: #dce1f6;
+}
+
+.detail-description-input {
+  margin-bottom: 8px;
+}
+
+.detail-description-input.ant-input,
+.detail-description-input .ant-input {
+  color: #dce1f6;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(136, 148, 196, 0.16);
+}
+
+.detail-description-input.ant-input::placeholder,
+.detail-description-input .ant-input::placeholder {
+  color: rgba(220, 225, 246, 0.45);
+}
+
+.description-status {
+  margin: 0;
+  font-size: 12px;
+}
+
+.description-status-idle,
+.description-status-editing {
+  color: #838cab;
+}
+
+.description-status-saving {
+  color: #7d97ff;
+}
+
+.description-status-saved {
+  color: #20d6a7;
+}
+
+.description-status-error {
+  color: #ff8793;
 }
 
 .progress-summary {
@@ -742,6 +805,31 @@
 .info-row:last-child {
   border-bottom: 0;
   padding-bottom: 0;
+}
+
+.info-row-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.info-row-select,
+.info-row-picker {
+  min-width: 180px;
+}
+
+.collaborator-field {
+  min-width: 220px;
+}
+
+.collaborator-select {
+  width: 100%;
+}
+
+.drawer-mini-action {
+  color: #7d97ff !important;
 }
 
 .link-text {

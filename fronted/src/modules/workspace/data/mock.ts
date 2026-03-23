@@ -17,7 +17,7 @@ export const pageMeta: Record<PageKey, { title: string; subtitle: string; action
   projects: {
     title: '项目管理',
     subtitle: '4 个活跃项目组 · 74 个进行中任务',
-    actionLabel: '新建任务',
+    actionLabel: '新建项目',
   },
   todos: {
     title: '待办中心',

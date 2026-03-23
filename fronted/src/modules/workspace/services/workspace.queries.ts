@@ -138,14 +138,14 @@ export const useTaskDetailQuery = (taskId: string) =>
   })
 
 export const useProjectOptionsQuery = () =>
-  useQuery<Array<{ id: number; projectName: string; status?: string }>, Error, SelectOptionItem[]>({
+  useQuery<Array<{ id: string; projectName: string; status?: string }>, Error, SelectOptionItem[]>({
     queryKey: workspaceQueryKeys.projectOptions,
     queryFn: workspaceApi.getProjectOptions,
     select: (items) => mapProjectOptions(items),
   })
 
 export const useUserOptionsQuery = () =>
-  useQuery<Array<{ userId: number; nickName: string }>, Error, SelectOptionItem[]>({
+  useQuery<Array<{ userId: string; nickName: string }>, Error, SelectOptionItem[]>({
     queryKey: workspaceQueryKeys.userOptions,
     queryFn: workspaceApi.getUserOptions,
     select: (items) => mapUserOptions(items),
@@ -165,6 +165,42 @@ export const useCreateTaskMutation = () => {
       void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
       void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
       void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
+    },
+  })
+}
+
+export const useCreateProjectMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: workspaceApi.createProject,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectOptions })
+      void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-gantt'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
+    },
+  })
+}
+
+export const useUpdateTaskMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ taskId, payload }: { taskId: string; payload: Parameters<typeof workspaceApi.updateTask>[1] }) =>
+      workspaceApi.updateTask(taskId, payload),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.taskDetail(variables.taskId) })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.dashboard })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.mustDoToday })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.riskTasks })
+      void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
+      void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-gantt'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
     },
   })
 }

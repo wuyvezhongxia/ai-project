@@ -136,7 +136,7 @@ export const mapTaskDetailToView = (task: ApiTask): TaskDetailView => {
 
   return {
     ...base,
-    creatorName: comments[0]?.userName ?? '张小明',
+    creatorName: task.creator?.nickName ?? comments[0]?.userName ?? '未知用户',
     attachments,
     comments,
     activities,
@@ -174,7 +174,7 @@ export const mapProjectTaskKanban = (input: Record<string, ApiTask[]>) => [
   { key: 'todo', title: '待开始', dotColor: '#8a92ff', tasks: input.notStarted ?? [] },
   { key: 'doing', title: '进行中', dotColor: '#5b79ff', tasks: input.inProgress ?? [] },
   { key: 'review', title: '待审核', dotColor: '#f7c44b', tasks: input.review ?? [] },
-  { key: 'done', title: '已完成', dotColor: '#22d7a8', tasks: input.done ?? [] },
+  { key: 'done', title: '已完成', dotColor: '#22d7a8', tasks: input.completed ?? [] },
   { key: 'delay', title: '延期', dotColor: '#ff7b88', tasks: input.delayed ?? [] },
 ].map((column) => ({
   key: column.key,
@@ -211,7 +211,7 @@ export const mapTaskListToBoardColumns = (tasks: ApiTask[]) => {
 }
 
 export const mapGanttRows = (
-  items: Array<{ taskId: number; taskName: string; startTime?: string; dueTime?: string; progress: number; status: string }>,
+  items: Array<{ taskId: string; taskName: string; startTime?: string; dueTime?: string; progress: number; status: string }>,
 ): GanttRow[] => {
   const startCandidates = items.map((item) => dayjs(item.startTime ?? item.dueTime ?? dayjs().toISOString()))
   const endCandidates = items.map((item) => dayjs(item.dueTime ?? item.startTime ?? dayjs().toISOString()))
@@ -236,7 +236,7 @@ export const mapGanttRows = (
 }
 
 export const mapWorkload = (
-  items: Array<{ userId: number; nickName: string; taskCount: number; urgentCount: number; loadPercent: number }>,
+  items: Array<{ userId: string; nickName: string; taskCount: number; urgentCount: number; loadPercent: number }>,
 ): WorkloadMember[] =>
   items.map((item, index) => ({
     userId: item.userId,
@@ -247,9 +247,9 @@ export const mapWorkload = (
   }))
 
 export const mapProjectOptions = (
-  items: Array<{ id: number; projectName: string }>,
+  items: Array<{ id: string; projectName: string }>,
 ): SelectOptionItem[] => items.map((item) => ({ label: item.projectName, value: item.id }))
 
 export const mapUserOptions = (
-  items: Array<{ userId: number; nickName: string }>,
+  items: Array<{ userId: string; nickName: string }>,
 ): SelectOptionItem[] => items.map((item) => ({ label: item.nickName, value: item.userId }))

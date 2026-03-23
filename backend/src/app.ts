@@ -3,6 +3,7 @@ import express from "express";
 import pinoHttp from "pino-http";
 import pino from "pino";
 
+import { asyncHandler } from "./common/http";
 import { errorHandler, notFoundMiddleware } from "./common/middleware";
 import { authRouter } from "./modules/auth/auth.routes";
 import { aiRouter } from "./modules/ai/ai.routes";
@@ -40,7 +41,7 @@ app.get("/health", (_req, res) => {
   res.json({ code: 0, message: "ok", data: { status: "healthy" } });
 });
 
-app.use("/api", authMiddleware);
+app.use("/api", asyncHandler(authMiddleware));
 app.use("/api/auth", authRouter);
 app.use("/api/org", orgRouter);
 app.use("/api/projects", projectRouter);
