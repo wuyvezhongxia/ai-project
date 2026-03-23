@@ -205,6 +205,26 @@ export const useUpdateTaskMutation = () => {
   })
 }
 
+export const useCreateTaskCommentMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      payload,
+    }: {
+      taskId: string
+      payload: Parameters<typeof workspaceApi.createTaskComment>[1]
+    }) => workspaceApi.createTaskComment(taskId, payload),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.taskDetail(variables.taskId) })
+      void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
+      void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
+    },
+  })
+}
+
 export const useDeleteTaskMutation = () => {
   const queryClient = useQueryClient()
 

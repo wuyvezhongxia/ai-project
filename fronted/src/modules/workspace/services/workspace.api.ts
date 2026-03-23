@@ -110,6 +110,11 @@ export type UpdateTaskPayload = Partial<{
   status: '0' | '1' | '2' | '3' | '4'
 }>
 
+export type CreateTaskCommentPayload = {
+  content: string
+  parentCommentId?: string
+}
+
 export type ApiProjectGanttItem = {
   taskId: string
   taskName: string
@@ -186,6 +191,11 @@ export const workspaceApi = {
     apiRequest(`/api/tasks/${taskId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    }),
+  createTaskComment: (taskId: string, payload: CreateTaskCommentPayload) =>
+    apiRequest(`/api/tasks/${taskId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
   createTask: (payload: Record<string, unknown>) =>
     apiRequest('/api/tasks', {

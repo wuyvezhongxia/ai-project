@@ -792,6 +792,76 @@
   background: rgba(28, 34, 50, 0.88) !important;
 }
 
+.comment-panel {
+  padding-top: 10px;
+}
+
+.comment-row {
+  padding-inline: 0 !important;
+}
+
+.comment-row .ant-list-item-meta {
+  align-items: flex-start;
+}
+
+.comment-row .ant-list-item-meta-title {
+  margin-bottom: 6px !important;
+}
+
+.comment-row .ant-list-item-meta-avatar {
+  margin-top: 2px;
+}
+
+.comment-user-name {
+  color: #f2f5ff;
+  font-weight: 600;
+}
+
+.comment-time {
+  color: #7f87a7;
+  font-size: 12px;
+}
+
+.comment-content {
+  color: #dce1f6;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.section-count-tag {
+  color: #7d97ff !important;
+}
+
+.comment-composer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.comment-composer-avatar {
+  background: linear-gradient(135deg, #4f7bff, #7d97ff) !important;
+  color: #fff !important;
+}
+
+.comment-composer-input.ant-input {
+  height: 44px;
+  color: #dce1f6;
+  background: rgba(24, 28, 42, 0.92);
+  border-color: rgba(136, 148, 196, 0.16);
+  border-radius: 14px;
+}
+
+.comment-composer-input.ant-input::placeholder {
+  color: rgba(220, 225, 246, 0.4);
+}
+
+.comment-composer-submit {
+  min-width: 84px;
+  height: 44px;
+  border-radius: 14px;
+}
+
 .info-row {
   display: flex;
   justify-content: space-between;
@@ -926,6 +996,10 @@
   .project-card-grid,
   .project-stats-grid,
   .kanban-board {
+    grid-template-columns: 1fr;
+  }
+
+  .comment-composer {
     grid-template-columns: 1fr;
   }
 

@@ -36,6 +36,8 @@ import { useWorkspaceStore } from '../store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../utils/task-ui'
 import {
   useProjectOptionsQuery,
+  useAuthContextQuery,
+  useCreateTaskCommentMutation,
   useTaskDetailQuery,
   useUpdateTaskMutation,
   useUserOptionsQuery,
@@ -76,11 +78,14 @@ function TaskDetailDrawer() {
   const closeTaskDetail = useWorkspaceStore((state) => state.closeTaskDetail)
   const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
   const { data: selectedTask, isLoading } = useTaskDetailQuery(selectedTaskId)
+  const { data: authContext } = useAuthContextQuery()
   const { data: projectOptions = [] } = useProjectOptionsQuery()
   const { data: userOptions = [] } = useUserOptionsQuery()
   const updateTaskMutation = useUpdateTaskMutation()
+  const createTaskCommentMutation = useCreateTaskCommentMutation()
   const [draftTitle, setDraftTitle] = useState('')
   const [draftDescription, setDraftDescription] = useState('')
+  const [draftComment, setDraftComment] = useState('')
   const [descriptionState, setDescriptionState] = useState<'idle' | 'editing' | 'saving' | 'saved' | 'error'>('idle')
   const [editingProject, setEditingProject] = useState(false)
   const [editingCollaborators, setEditingCollaborators] = useState(false)
@@ -88,6 +93,7 @@ function TaskDetailDrawer() {
   useEffect(() => {
     setDraftTitle(selectedTask?.title ?? '')
     setDraftDescription(selectedTask?.description ?? '')
+    setDraftComment('')
     setDescriptionState('idle')
     setEditingProject(false)
     setEditingCollaborators(false)
@@ -116,6 +122,28 @@ function TaskDetailDrawer() {
     ? Math.round((completedSubtasks / selectedTask.subtasks.length) * 100)
     : 0
   const collaboratorIds = selectedTask.collaborators?.map((user) => user.userId) ?? []
+  const currentCommentUserName = authContext?.nickName ?? authContext?.userName ?? '我'
+  const commentsContent = selectedTask.comments.length ? (
+    <List
+      dataSource={selectedTask.comments}
+      renderItem={(item) => (
+        <List.Item className="comment-row">
+          <List.Item.Meta
+            avatar={<Avatar>{item.userName.slice(0, 1)}</Avatar>}
+            title={
+              <Space size={8} wrap>
+                <span className="comment-user-name">{item.userName}</span>
+                <span className="comment-time">{item.createTime}</span>
+              </Space>
+            }
+            description={<div className="comment-content">{item.content}</div>}
+          />
+        </List.Item>
+      )}
+    />
+  ) : (
+    <div className="tab-placeholder">暂无评论</div>
+  )
 
   const handleTaskUpdate = async (
     payload: Parameters<typeof updateTaskMutation.mutateAsync>[0]['payload'],
@@ -159,6 +187,25 @@ function TaskDetailDrawer() {
     } catch {
       setDescriptionState('error')
       message.error('任务更新失败，请稍后重试')
+    }
+  }
+
+  const handleCommentSubmit = async () => {
+    const content = draftComment.trim()
+    if (!content) {
+      message.warning('请输入评论内容')
+      return
+    }
+
+    try {
+      await createTaskCommentMutation.mutateAsync({
+        taskId: selectedTask.id,
+        payload: { content },
+      })
+      setDraftComment('')
+      message.success('评论已发布')
+    } catch {
+      message.error('评论发布失败，请稍后重试')
     }
   }
 
@@ -307,6 +354,38 @@ function TaskDetailDrawer() {
                     <Button icon={<PlusOutlined />} disabled>
                       上传附件
                     </Button>
+                  </section>
+
+                  <section className="detail-section">
+                    <Flex justify="space-between" align="center">
+                      <div className="section-title">最新评论</div>
+                      <Tag bordered={false} className="section-count-tag">
+                        {selectedTask.comments.length}
+                      </Tag>
+                    </Flex>
+                    <div className="rich-card comment-panel">{commentsContent}</div>
+                    <div className="comment-composer">
+                      <Avatar className="comment-composer-avatar">{currentCommentUserName.slice(0, 1)}</Avatar>
+                      <Input
+                        value={draftComment}
+                        className="comment-composer-input"
+                        placeholder="发表评论，支持 @ 成员..."
+                        onChange={(event) => setDraftComment(event.target.value)}
+                        onPressEnter={(event) => {
+                          if (event.shiftKey) return
+                          event.preventDefault()
+                          void handleCommentSubmit()
+                        }}
+                      />
+                      <Button
+                        type="primary"
+                        className="comment-composer-submit"
+                        loading={createTaskCommentMutation.isPending}
+                        onClick={() => void handleCommentSubmit()}
+                      >
+                        发送
+                      </Button>
+                    </div>
                   </section>
                 </div>
 
@@ -493,22 +572,7 @@ function TaskDetailDrawer() {
                 <Tag bordered={false}>{selectedTask.comments.length}</Tag>
               </Space>
             ),
-            children: selectedTask.comments.length ? (
-              <List
-                dataSource={selectedTask.comments}
-                renderItem={(item) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      avatar={<Avatar>{item.userName.slice(0, 1)}</Avatar>}
-                      title={`${item.userName} · ${item.createTime}`}
-                      description={item.content}
-                    />
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <div className="tab-placeholder">暂无评论</div>
-            ),
+            children: commentsContent,
           },
           {
             key: 'logs',
