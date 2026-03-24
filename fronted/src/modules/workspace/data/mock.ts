@@ -26,10 +26,19 @@ export const pageMeta: Record<PageKey, { title: string; subtitle: string; action
   },
 }
 
-export const navItems: Array<{ key: PageKey; label: string; count?: string; danger?: boolean }> = [
-  { key: 'dashboard', label: '首页工作台' },
-  { key: 'projects', label: '项目管理', count: '4' },
-  { key: 'todos', label: '待办中心', count: '12', danger: true },
+/** 侧栏：仅工作台分组；徽标数字由 useSidebarNavCounts 从列表接口统计，不在此写死 */
+export const navGroups: Array<{
+  title: string
+  items: Array<{ key: PageKey; label: string }>
+}> = [
+  {
+    title: '工作台',
+    items: [
+      { key: 'dashboard', label: '首页工作台' },
+      { key: 'projects', label: '项目管理' },
+      { key: 'todos', label: '待办中心' },
+    ],
+  },
 ]
 
 export const statCards = [

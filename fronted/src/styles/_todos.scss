@@ -1,0 +1,80 @@
+.todo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.todo-list-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.todo-list-header,
+.todo-list-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) 1.2fr 0.9fr 0.8fr 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.todo-list-header {
+  padding: 0 4px 14px;
+  color: #7e87a7;
+  font-size: 13px;
+  border-bottom: 1px solid var(--pm-border-row);
+}
+
+.todo-list-row {
+  padding: 16px 4px;
+  border-bottom: 1px solid var(--pm-border-row-faint);
+}
+
+.todo-list-row-clickable {
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.todo-list-row-clickable:hover {
+  background: rgba(79, 98, 175, 0.08);
+}
+
+.todo-list-row:last-child {
+  border-bottom: 0;
+}
+
+.todo-list-row-button {
+  width: 100%;
+  padding-inline: 4px;
+  border: 0;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.todo-cell-main {
+  min-width: 0;
+}
+
+.todo-cell-trigger {
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.todo-row-title {
+  margin-bottom: 6px;
+  color: #f7f8ff;
+  font-weight: 600;
+}
+
+.todo-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -1,49 +1,76 @@
+import { AimOutlined, AppstoreOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import { Avatar } from 'antd'
+import type { ComponentType } from 'react'
+import type { PageKey } from '../../modules/workspace/types'
+import { navGroups } from '../../modules/workspace/data/mock'
+import { useAuthContextQuery, useSidebarNavCounts } from '../../modules/workspace/services/workspace.queries'
 import { NavLink } from 'react-router-dom'
-import { navItems } from '../../modules/workspace/data/mock'
-import { useAuthContextQuery } from '../../modules/workspace/services/workspace.queries'
 
-const routeMap = {
+const routeMap: Record<PageKey, string> = {
   dashboard: '/',
   projects: '/projects',
   todos: '/todos',
-} as const
+}
+
+const navIcons: Record<PageKey, ComponentType> = {
+  dashboard: AppstoreOutlined,
+  projects: FolderOpenOutlined,
+  todos: AimOutlined,
+}
 
 function AppSidebar() {
   const { data: authContext } = useAuthContextQuery()
+  const { projectBadge, todoBadge, todoBadgeDanger } = useSidebarNavCounts()
+
+  const badgeFor = (key: PageKey) => {
+    if (key === 'projects') return projectBadge
+    if (key === 'todos') return todoBadge
+    return undefined
+  }
+
+  const badgeDangerFor = (key: PageKey) => key === 'todos' && todoBadgeDanger
 
   return (
     <aside className="app-sidebar">
       <div className="sidebar-top">
         <div className="brand-block">
-          <div className="brand-avatar">策</div>
-          <div>
+          <div className="brand-avatar">筑</div>
+          <div className="brand-text">
             <div className="brand-title">软小筑</div>
-            <div className="brand-subtitle">work space hub</div>
+            <div className="brand-subtitle">WorkOS v2.0</div>
           </div>
         </div>
-
-        <nav className="nav-menu">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.key}
-              to={routeMap[item.key]}
-              end={item.key === 'dashboard'}
-              className={({ isActive }) =>
-                isActive ? 'nav-item nav-item-active' : 'nav-item'
-              }
-            >
-              <span className="nav-dot" />
-              <span>{item.label}</span>
-              {item.count ? (
-                <span className={item.danger ? 'nav-count nav-count-danger' : 'nav-count'}>
-                  {item.count}
-                </span>
-              ) : null}
-            </NavLink>
-          ))}
-        </nav>
       </div>
+
+      <nav className="nav-menu" aria-label="主导航">
+        {navGroups.map((group) => (
+          <div key={group.title} className="nav-section">
+            <div className="nav-section-title">{group.title}</div>
+            <div className="nav-section-items">
+              {group.items.map((item) => {
+                const Icon = navIcons[item.key]
+                const badge = badgeFor(item.key)
+                return (
+                  <NavLink
+                    key={item.key}
+                    to={routeMap[item.key]}
+                    end={item.key === 'dashboard'}
+                    className={({ isActive }) => (isActive ? 'nav-item nav-item-active' : 'nav-item')}
+                  >
+                    <span className="nav-item-icon" aria-hidden>
+                      <Icon />
+                    </span>
+                    <span className="nav-item-label">{item.label}</span>
+                    {badge ? (
+                      <span className={badgeDangerFor(item.key) ? 'nav-count nav-count-danger' : 'nav-count'}>{badge}</span>
+                    ) : null}
+                  </NavLink>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
 
       <div className="sidebar-user">
         <Avatar size={36}>{authContext?.nickName?.slice(0, 1) ?? '张'}</Avatar>

@@ -1,0 +1,32 @@
+.dashboard-shell {
+  padding: 28px;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.dashboard-header h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+  font-weight: 700;
+  color: #f7f8ff;
+}
+
+.dashboard-header p {
+  color: #747d9f;
+}
+
+.dashboard-search {
+  width: 280px;
+}

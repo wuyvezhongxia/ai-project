@@ -1,0 +1,52 @@
+.glass-card {
+  border: 1px solid var(--pm-border-card) !important;
+  border-radius: 22px !important;
+  background: linear-gradient(180deg, rgba(22, 27, 41, 0.95), rgba(15, 18, 29, 0.95)) !important;
+  box-shadow: 0 18px 48px rgba(3, 6, 18, 0.36);
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.toolbar-row-wrap {
+  flex-wrap: wrap;
+}
+
+.muted-text {
+  color: #8088a7;
+}
+
+.success-text {
+  color: #25d9aa;
+}
+
+.warning-text {
+  color: #f5c54f;
+}
+
+.ghost-button {
+  border-color: rgba(121, 136, 189, 0.18) !important;
+  background: rgba(26, 31, 48, 0.92) !important;
+  color: #eef1ff !important;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.link-text {
+  color: #7d97ff;
+}
+
+.danger-text {
+  color: #ff8793;
+}
+
+.tab-placeholder {
+  padding: 24px 0;
+  color: #838cab;
+}

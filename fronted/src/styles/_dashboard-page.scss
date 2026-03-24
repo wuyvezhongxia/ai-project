@@ -1,0 +1,170 @@
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  min-height: 152px;
+}
+
+.stat-card-title {
+  color: #8e96b6;
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+
+.stat-card-value {
+  margin-bottom: 14px;
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 700;
+  color: #f7f8ff;
+}
+
+.stat-card-footer {
+  margin-top: 10px;
+  color: #7b84a8;
+  font-size: 13px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.95fr);
+  gap: 20px;
+}
+
+.left-column,
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.task-list-item,
+.risk-list-item,
+.subtask-row {
+  padding-inline: 0 !important;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.task-title-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-title {
+  margin-bottom: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f5f7ff;
+}
+
+.task-title-done {
+  color: #6f7694;
+  text-decoration: line-through;
+}
+
+.task-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: #717a9a;
+  font-size: 13px;
+}
+
+.task-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ff867c;
+  font-size: 13px;
+}
+
+.risk-list-item {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.risk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff7587;
+  box-shadow: 0 0 12px rgba(255, 117, 135, 0.7);
+}
+
+.risk-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.risk-title {
+  color: #f4f7ff;
+  font-weight: 600;
+}
+
+.risk-date {
+  color: #ff7b88;
+}
+
+.assistant-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.assistant-bubble {
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(113, 128, 178, 0.18);
+  border-radius: 16px 16px 16px 6px;
+  color: #e9ecff;
+  background: rgba(31, 37, 57, 0.88);
+}
+
+.assistant-bubble-user {
+  align-self: flex-end;
+  border-radius: 16px 16px 6px 16px;
+  background: linear-gradient(135deg, rgba(82, 110, 255, 0.82), rgba(100, 126, 255, 0.74));
+}
+
+.workload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.workload-row {
+  display: grid;
+  grid-template-columns: 1fr 120px auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.workload-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workload-bar-inner {
+  height: 100%;
+  border-radius: inherit;
+}

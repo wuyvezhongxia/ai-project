@@ -1,0 +1,6 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: 219px minmax(0, 1fr);
+  min-height: 100vh;
+  color: #f5f7ff;
+}

@@ -110,6 +110,14 @@ export const useTodoListQuery = (params: URLSearchParams) =>
     select: (items) => items.map(mapTaskToView),
   })
 
+/** 与待办页默认「全部 + 列表」一致，用于侧栏徽标（仅统计接口返回列表长度，不新增字段） */
+export const sidebarTodoListParams = (() => {
+  const p = new URLSearchParams()
+  p.set('scope', 'all')
+  p.set('view', 'list')
+  return p
+})()
+
 export const useTodoKanbanQuery = (params: URLSearchParams) =>
   useQuery<ApiTask[] | Record<string, ApiTask[]>, Error, BoardColumn[]>({
     queryKey: workspaceQueryKeys.todoKanban(params.toString()),
@@ -128,6 +136,26 @@ export const useTodoKanbanQuery = (params: URLSearchParams) =>
       ]
     },
   })
+
+/**
+ * 侧栏数字：项目管理 = 进行中项目列表条数；待办中心 = 默认待办列表条数。
+ * 接口未返回或条数为 0 则不展示徽标；待办存在已超期项时用警示色。
+ */
+export const useSidebarNavCounts = () => {
+  const projectsQuery = useProjectsQuery('进行中')
+  const todosQuery = useTodoListQuery(sidebarTodoListParams)
+
+  const projectCount = projectsQuery.data?.length ?? 0
+  const todoTasks = todosQuery.data ?? []
+  const todoCount = todoTasks.length
+  const overdueCount = todoTasks.filter((t) => t.dueCategory === 'overdue').length
+
+  return {
+    projectBadge: projectsQuery.isSuccess && projectCount > 0 ? String(projectCount) : undefined,
+    todoBadge: todosQuery.isSuccess && todoCount > 0 ? String(todoCount) : undefined,
+    todoBadgeDanger: todosQuery.isSuccess && overdueCount > 0,
+  }
+}
 
 export const useTaskDetailQuery = (taskId: string) =>
   useQuery<ApiTask, Error, TaskDetailView>({
