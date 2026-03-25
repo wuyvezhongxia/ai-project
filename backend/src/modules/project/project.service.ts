@@ -77,7 +77,7 @@ const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>
     owner: owner ? toUserProfile(owner) : undefined,
     membersCount: members.length,
     taskCount: tasks.length,
-    completedTaskCount: tasks.filter((item) => item.status === "3").length,
+    completedTaskCount: tasks.filter((item) => item.status === "2").length,
     tags: tagRows.map(toTag),
   };
 };
@@ -182,12 +182,12 @@ export const projectService = {
       ...base,
       statistics: {
         totalTasks: tasks.length,
-        completedTasks: tasks.filter((item) => item.status === "3").length,
+        completedTasks: tasks.filter((item) => item.status === "2").length,
         overdueTasks: tasks.filter((item) => item.status !== "3" && item.dueTime && item.dueTime < new Date()).length,
         progress:
           tasks.length === 0
             ? 0
-            : Number(((tasks.filter((item) => item.status === "3").length / tasks.length) * 100).toFixed(2)),
+            : Number(((tasks.filter((item) => item.status === "2").length / tasks.length) * 100).toFixed(2)),
       },
     };
   },
@@ -359,9 +359,8 @@ export const projectService = {
       return {
         notStarted: tasks.filter((item) => item.status === "0"),
         inProgress: tasks.filter((item) => item.status === "1"),
-        review: tasks.filter((item) => item.status === "2"),
-        done: tasks.filter((item) => item.status === "3"),
-        delayed: tasks.filter((item) => item.status === "4"),
+        completed: tasks.filter((item) => item.status === "2"),
+        delayed: tasks.filter((item) => item.status === "3"),
       };
     }
 
@@ -392,8 +391,8 @@ export const projectService = {
       where: { tenantId: ctx.tenantId, projectId: toDbId(projectId), delFlag: "0" },
     });
     const total = tasks.length;
-    const completed = tasks.filter((item) => item.status === "3").length;
-    const delayed = tasks.filter((item) => item.status === "4").length;
+    const completed = tasks.filter((item) => item.status === "2").length;
+    const delayed = tasks.filter((item) => item.status === "3").length;
     const overdue = tasks.filter((item) => item.status !== "3" && item.dueTime && item.dueTime < new Date()).length;
 
     return {

@@ -6,6 +6,12 @@
   flex-wrap: wrap;
 }
 
+.todo-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .todo-list-card {
   display: flex;
   flex-direction: column;
@@ -14,7 +20,7 @@
 .todo-list-header,
 .todo-list-row {
   display: grid;
-  grid-template-columns: minmax(220px, 2fr) 1.2fr 0.9fr 0.8fr 1fr 1fr 1fr;
+  grid-template-columns: minmax(240px, 2.2fr) 1.2fr 0.9fr 0.8fr 1fr 0.95fr 0.8fr;
   gap: 12px;
   align-items: center;
 }
@@ -73,8 +79,29 @@
   font-weight: 600;
 }
 
+.todo-row-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: #afb6d2;
+  font-size: 13px;
+}
+
 .todo-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.todo-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--pm-border-row);
+}
+
+.todo-pagination .ant-pagination {
+  color: #c8d0ef;
 }

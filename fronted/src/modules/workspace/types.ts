@@ -11,13 +11,13 @@ export type WorkTask = {
   title: string
   project: string
   priority: 'P0' | 'P1' | 'P2' | 'P3'
-  status: '待开始' | '进行中' | '待审核' | '已完成' | '延期'
+  status: '待开始' | '进行中' | '已完成' | '延期'
   dueText: string
   owner: string
   completed?: boolean
   favorite?: boolean
   scope?: Exclude<TodoScope, 'all'>
-  dueCategory?: 'today' | 'week' | 'overdue'
+  dueCategory?: 'today' | 'week' | 'overdue' | 'completed'
   projectId?: string
   ownerId?: string
   startAt?: string
@@ -77,6 +77,7 @@ export type RelationView = {
 }
 
 export type TaskDetailView = WorkTask & {
+  creatorId?: string
   creatorName: string
   attachments: AttachmentView[]
   comments: TaskCommentView[]

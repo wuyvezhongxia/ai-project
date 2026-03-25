@@ -13,7 +13,6 @@ export const toBoardTask = (task: WorkTask): BoardTask => ({
 
 export const getStatusColor = (status: WorkTask['status'] | string) => {
   if (status === '已完成') return 'success'
-  if (status === '待审核') return 'warning'
   if (status === '延期') return 'error'
   if (status === '待开始') return 'default'
   return 'processing'

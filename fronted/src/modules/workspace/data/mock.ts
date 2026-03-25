@@ -17,7 +17,7 @@ export const pageMeta: Record<PageKey, { title: string; subtitle: string; action
   projects: {
     title: '项目管理',
     subtitle: '4 个活跃项目组 · 74 个进行中任务',
-    actionLabel: '新建项目',
+    actionLabel: '新建任务',
   },
   todos: {
     title: '待办中心',
@@ -221,16 +221,8 @@ export const projectBoardMap: Record<string, BoardColumn[]> = {
         { id: 'TASK-104', title: '首页主视觉 Banner 设计', project: '官网全面改版', priority: 'P0', status: '进行中', dueText: '今天', owner: '张小明', assignee: '张' },
         { id: 'TASK-105', title: '产品功能介绍页重构', project: '官网全面改版', priority: 'P1', status: '进行中', dueText: '周五', owner: '王芳', assignee: '王' },
         { id: 'TASK-106', title: 'H5 设计稿交付（已延期）', project: '官网全面改版', priority: 'P1', status: '延期', dueText: '已超期', owner: '赵丽', assignee: '赵' },
-      ],
-    },
-    {
-      key: 'review',
-      title: '待审核',
-      dotColor: '#f7c44b',
-      count: 3,
-      tasks: [
-        { id: 'TASK-107', title: '导航栏样式交互优化', project: '官网全面改版', priority: 'P2', status: '待审核', dueText: '今天', owner: '刘晨', assignee: '刘' },
-        { id: 'TASK-108', title: '色彩规范文档输出', project: '官网全面改版', priority: 'P2', status: '待审核', dueText: '明天', owner: '张小明', assignee: '张' },
+        { id: 'TASK-107', title: '导航栏样式交互优化', project: '官网全面改版', priority: 'P2', status: '进行中', dueText: '今天', owner: '刘晨', assignee: '刘' },
+        { id: 'TASK-108', title: '色彩规范文档输出', project: '官网全面改版', priority: 'P2', status: '进行中', dueText: '明天', owner: '张小明', assignee: '张' },
       ],
     },
     {
@@ -257,14 +249,10 @@ export const projectBoardMap: Record<string, BoardColumn[]> = {
       title: '进行中',
       dotColor: '#5b79ff',
       count: 5,
-      tasks: [{ id: 'TASK-202', title: '支付链路异常提示优化', project: 'App 3.0 迭代', priority: 'P0', status: '进行中', dueText: '今天', owner: '王芳', assignee: '王' }],
-    },
-    {
-      key: 'review',
-      title: '待审核',
-      dotColor: '#f7c44b',
-      count: 2,
-      tasks: [{ id: 'TASK-203', title: '埋点方案验收', project: 'App 3.0 迭代', priority: 'P1', status: '待审核', dueText: '明天', owner: '刘晨', assignee: '刘' }],
+      tasks: [
+        { id: 'TASK-202', title: '支付链路异常提示优化', project: 'App 3.0 迭代', priority: 'P0', status: '进行中', dueText: '今天', owner: '王芳', assignee: '王' },
+        { id: 'TASK-203', title: '埋点方案验收', project: 'App 3.0 迭代', priority: 'P1', status: '待开始', dueText: '明天', owner: '刘晨', assignee: '刘' },
+      ],
     },
     {
       key: 'done',
@@ -283,7 +271,6 @@ export const projectBoardMap: Record<string, BoardColumn[]> = {
       tasks: [{ id: 'TASK-301', title: '数据指标口径梳理', project: '数据分析平台', priority: 'P1', status: '待开始', dueText: '本周', owner: '赵丽', assignee: '赵' }],
     },
     { key: 'doing', title: '进行中', dotColor: '#5b79ff', count: 1, tasks: [] },
-    { key: 'review', title: '待审核', dotColor: '#f7c44b', count: 0, tasks: [] },
     { key: 'done', title: '已完成', dotColor: '#22d7a8', count: 1, tasks: [] },
   ],
 }
@@ -297,7 +284,7 @@ export const ganttRowsMap: Record<string, GanttRow[]> = {
   'project-app': [
     { label: '支付链路', start: 16, width: 32, color: '#5a7cff', note: '异常处理' },
     { label: '消息中心', start: 42, width: 30, color: '#21d8aa', note: '进行中' },
-    { label: '埋点验收', start: 76, width: 14, color: '#f7c44b', note: '待审核' },
+    { label: '埋点验收', start: 76, width: 14, color: '#5a7cff', note: '待开始' },
   ],
   'project-data': [
     { label: '数据模型', start: 18, width: 24, color: '#5a7cff', note: '待开始' },
@@ -310,7 +297,7 @@ export const initialTodoTasks: WorkTask[] = [
   { id: 'TODO-001', title: '完成产品需求评审文档（V2.3）', project: '官网全面改版', priority: 'P0', status: '进行中', dueText: '今天 17:00', owner: '张小明', scope: 'owned', dueCategory: 'today', favorite: true },
   { id: 'TODO-002', title: '修复用户登录页面闪屏 BUG', project: 'App 3.0 迭代', priority: 'P0', status: '进行中', dueText: '今天 18:00', owner: '王芳', scope: 'collaborated', dueCategory: 'today' },
   { id: 'TODO-003', title: '确认第三方数据接口对接方案', project: '数据分析平台', priority: 'P1', status: '待开始', dueText: '今天 20:00', owner: '赵丽', scope: 'created', dueCategory: 'today' },
-  { id: 'TODO-004', title: '整理版本发布 Checklist', project: '官网全面改版', priority: 'P2', status: '待审核', dueText: '本周四', owner: '张小明', scope: 'owned', dueCategory: 'week' },
+  { id: 'TODO-004', title: '整理版本发布 Checklist', project: '官网全面改版', priority: 'P2', status: '待开始', dueText: '本周四', owner: '张小明', scope: 'owned', dueCategory: 'week' },
   { id: 'TODO-005', title: '输出周报给管理层', project: '管理看板', priority: 'P1', status: '延期', dueText: '已超期 1 天', owner: '张小明', scope: 'created', dueCategory: 'overdue', favorite: true },
   { id: 'TODO-006', title: '完善用户反馈埋点列表', project: 'App 3.0 迭代', priority: 'P2', status: '已完成', dueText: '已完成', owner: '刘晨', scope: 'collaborated', dueCategory: 'week' },
 ]

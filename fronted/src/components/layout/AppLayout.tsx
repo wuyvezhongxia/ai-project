@@ -5,6 +5,7 @@ import ProjectCreateModal from '../../modules/projects/components/ProjectCreateM
 import TaskCreateModal from '../../modules/workspace/components/TaskCreateModal'
 import TaskDetailDrawer from '../../modules/workspace/components/TaskDetailDrawer'
 import { pageMeta } from '../../modules/workspace/data/mock'
+import { sidebarTodoListParams, useTodoListQuery } from '../../modules/workspace/services/workspace.queries'
 import { useWorkspaceStore } from '../../modules/workspace/store/workspace-store'
 
 const getPageKeyFromPath = (pathname: string) => {
@@ -15,10 +16,15 @@ const getPageKeyFromPath = (pathname: string) => {
 
 function AppLayout() {
   const location = useLocation()
+  const isTodosPage = location.pathname.startsWith('/todos')
   const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
-  const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
   const currentPage = pageMeta[getPageKeyFromPath(location.pathname)]
-  const handlePrimaryAction = location.pathname.startsWith('/projects') ? openProjectModal : openTaskModal
+  const handlePrimaryAction = openTaskModal
+  const { data: todoHeaderTasks = [] } = useTodoListQuery(sidebarTodoListParams, isTodosPage)
+  const todoOverdueCount = todoHeaderTasks.filter((task) => task.dueCategory === 'overdue').length
+  const dynamicSubtitle = isTodosPage
+    ? `我的 ${todoHeaderTasks.length} 个待办 · ${todoOverdueCount} 个超期项`
+    : currentPage.subtitle
 
   return (
     <div className="app-shell">
@@ -27,7 +33,7 @@ function AppLayout() {
       <main className="dashboard-shell">
         <PageHeader
           title={currentPage.title}
-          subtitle={currentPage.subtitle}
+          subtitle={dynamicSubtitle}
           actionLabel={currentPage.actionLabel}
           onActionClick={handlePrimaryAction}
         />

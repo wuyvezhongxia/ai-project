@@ -23,8 +23,10 @@ export class ApiClientError extends Error {
 }
 
 const TOKEN_STORAGE_KEY = 'pm-module-token'
+// Keep the fallback payload minimal so display fields come from the backend DB,
+// not from stale hardcoded values embedded in the token.
 const DEV_FALLBACK_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMSIsInRlbmFudF9pZCI6IjAwMDAwMCIsImRlcHRfaWQiOiIxMDMiLCJ1c2VyX25hbWUiOiJhZG1pbiIsIm5pY2tfbmFtZSI6Iui9r-etkeenkeaKgCIsInJvbGVfaWRzIjpbIjEiXSwiaWF0IjoxNzc0MjcxODU1LCJleHAiOjE3NzY4NjM4NTV9.Pe2x480WpCK9JsLJnwg15b36ACKcUSKFs4C0dG3WYeQ'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMSIsInRlbmFudF9pZCI6IjAwMDAwMCIsImRlcHRfaWQiOiIxMDMiLCJyb2xlX2lkcyI6WyIxIl0sImV4cCI6MTg5MzQ1NjAwMCwiaWF0IjoxNzc0NDI4MjMxfQ.XjonoSrXNPT74lH74GlHyVHrqMWhNhGenejVVJKjQNk'
 
 export const bootstrapTokenFromUrl = () => {
   if (typeof window === 'undefined') return

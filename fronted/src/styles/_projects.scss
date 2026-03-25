@@ -79,11 +79,38 @@
   gap: 16px;
 }
 
+.kanban-board-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.kanban-board-single-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-content: start;
+  gap: 14px;
+  min-height: 210px;
+}
+
+.kanban-board-single .kanban-column {
+  max-height: 640px;
+}
+
+.kanban-board-single .kanban-column-body {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-content: start;
+  gap: 14px;
+}
+
 .kanban-column {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--pm-border-row);
   border-radius: 18px;
   background: rgba(18, 22, 36, 0.92);
   overflow: hidden;
+  min-height: 320px;
+  max-height: 560px;
 }
 
 .kanban-column-header {
@@ -100,10 +127,27 @@
 
 .kanban-column-body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
   padding: 14px;
   min-height: 210px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(112, 131, 205, 0.55) transparent;
+}
+
+.kanban-column-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.kanban-column-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(112, 131, 205, 0.45);
+}
+
+.kanban-column-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .board-task-card {
@@ -115,6 +159,33 @@
   color: #f5f7ff;
   background: rgba(29, 35, 52, 0.9);
   cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.board-task-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(111, 124, 255, 0.42);
+  background: rgba(34, 41, 61, 0.98);
+  box-shadow: 0 14px 30px rgba(6, 10, 24, 0.34);
+}
+
+.board-task-card:focus-visible {
+  outline: none;
+  transform: translateY(-2px);
+  border-color: rgba(111, 124, 255, 0.6);
+  box-shadow:
+    0 0 0 2px rgba(111, 124, 255, 0.22),
+    0 14px 30px rgba(6, 10, 24, 0.34);
+}
+
+.kanban-board-single .board-task-card,
+.kanban-board-single-list .board-task-card {
+  max-width: none;
+  min-width: 0;
 }
 
 .board-task-title {

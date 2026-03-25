@@ -9,7 +9,7 @@ export const taskListQuerySchema = z.object({
   projectId: idSchema.optional(),
   scope: z.enum(["all", "owned", "created", "collaborated"]).optional(),
   view: z.enum(["list", "kanban"]).optional(),
-  status: z.string().optional(),
+  status: z.enum(["0", "1", "2", "3"]).optional(),
   priority: z.string().optional(),
   assigneeUserId: idSchema.optional(),
   creatorUserId: idSchema.optional(),
@@ -41,12 +41,12 @@ export const createTaskSchema = z.object({
 });
 
 export const updateTaskSchema = createTaskSchema.partial().extend({
-  status: z.enum(["0", "1", "2", "3", "4"]).optional(),
+  status: z.enum(["0", "1", "2", "3"]).optional(),
   riskLevel: z.enum(["0", "1", "2", "3"]).optional(),
 });
 
 export const taskStatusSchema = z.object({
-  status: z.enum(["0", "1", "2", "3", "4"]),
+  status: z.enum(["0", "1", "2", "3"]),
 });
 
 export const subtaskSchema = z.object({

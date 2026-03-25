@@ -98,6 +98,18 @@ model UserRole {
   @@schema("rz_ai")
 }
 
+/// Mirrors rz_ai.sys_role (RuoYi-style). Used to resolve role display names for auth context.
+model Role {
+  roleId   BigInt  @id @map("role_id") @db.BigInt
+  tenantId String? @map("tenant_id") @db.VarChar(20)
+  roleName String? @map("role_name") @db.VarChar(30)
+  roleKey  String? @map("role_key") @db.VarChar(100)
+  delFlag  String? @map("del_flag") @db.Char(1)
+
+  @@map("sys_role")
+  @@schema("rz_ai")
+}
+
 model Project {
   id          BigInt    @id @default(autoincrement()) @db.BigInt
   tenantId    String    @map("tenant_id") @db.VarChar(20)

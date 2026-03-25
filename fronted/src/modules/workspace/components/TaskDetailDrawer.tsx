@@ -46,7 +46,6 @@ import {
 const statusOptions = [
   { label: '待开始', value: '待开始' },
   { label: '进行中', value: '进行中' },
-  { label: '待审核', value: '待审核' },
   { label: '已完成', value: '已完成' },
   { label: '延期', value: '延期' },
 ]
@@ -58,12 +57,11 @@ const priorityOptions = [
   { label: 'P3', value: 'P3' },
 ]
 
-const statusValueMap: Record<(typeof statusOptions)[number]['value'], '0' | '1' | '2' | '3' | '4'> = {
+const statusValueMap: Record<(typeof statusOptions)[number]['value'], '0' | '1' | '2' | '3'> = {
   待开始: '0',
   进行中: '1',
-  待审核: '2',
-  已完成: '3',
-  延期: '4',
+  已完成: '2',
+  延期: '3',
 }
 
 const priorityValueMap: Record<(typeof priorityOptions)[number]['value'], '0' | '1' | '2' | '3'> = {
@@ -121,7 +119,13 @@ function TaskDetailDrawer() {
   const subtaskPercent = selectedTask.subtasks.length
     ? Math.round((completedSubtasks / selectedTask.subtasks.length) * 100)
     : 0
-  const collaboratorIds = selectedTask.collaborators?.map((user) => user.userId) ?? []
+  const excludedCollaboratorIds = new Set(
+    [selectedTask.ownerId, selectedTask.creatorId].filter((value): value is string => Boolean(value)),
+  )
+  const collaboratorIds = (selectedTask.collaborators?.map((user) => user.userId) ?? []).filter(
+    (userId) => !excludedCollaboratorIds.has(userId),
+  )
+  const collaboratorOptions = userOptions.filter((user) => !excludedCollaboratorIds.has(user.value))
   const currentCommentUserName = authContext?.nickName ?? authContext?.userName ?? '我'
   const commentsContent = selectedTask.comments.length ? (
     <List
@@ -490,9 +494,15 @@ function TaskDetailDrawer() {
                               size="small"
                               className="collaborator-select"
                               value={collaboratorIds}
-                              options={userOptions}
+                              options={collaboratorOptions}
                               placeholder="选择协作人"
-                              onChange={(value) => void handleTaskUpdate({ collaboratorUserIds: value as string[] })}
+                              onChange={(value) =>
+                                void handleTaskUpdate({
+                                  collaboratorUserIds: (value as string[]).filter(
+                                    (userId) => !excludedCollaboratorIds.has(userId),
+                                  ),
+                                })
+                              }
                             />
                           ) : null}
                         </div>

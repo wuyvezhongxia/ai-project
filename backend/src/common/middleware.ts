@@ -5,6 +5,7 @@ import { toDbId } from "./db-values";
 import { env } from "../config/env";
 import { AppError } from "./http";
 import { prisma } from "./prisma";
+import { resolveAvatarUrl } from "../modules/auth/auth.service";
 import type { AuthContext } from "./types";
 
 type JwtPayload = {
@@ -14,6 +15,8 @@ type JwtPayload = {
   user_name?: string;
   nick_name?: string;
   role_ids?: Array<number | string>;
+  avatar?: string;
+  avatar_url?: string;
   exp?: number;
 };
 
@@ -61,10 +64,15 @@ export const authMiddleware = async (req: Request, _res: Response, next: NextFun
 
     const user = await prisma.user.findFirst({
       where: { userId: toDbId(ctx.userId), tenantId: ctx.tenantId, status: "0", delFlag: "0" },
+      select: { userName: true, nickName: true, avatar: true },
     });
     if (!user) {
       return next(new AppError("User is not available", 403));
     }
+
+    ctx.userName = user.userName ?? ctx.userName;
+    ctx.nickName = user.nickName ?? ctx.nickName;
+    ctx.avatarUrl = resolveAvatarUrl(payload);
 
     (req as Request & { ctx: AuthContext; token?: string }).ctx = ctx;
     (req as Request & { ctx: AuthContext; token?: string }).token = token;

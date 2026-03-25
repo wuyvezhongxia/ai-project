@@ -2,11 +2,15 @@ import type { Response } from "express";
 import jwt from "jsonwebtoken";
 
 import { env } from "../../config/env";
+import { toDbId } from "../../common/db-values";
 import { ok } from "../../common/http";
 import type { AuthedRequest } from "../../common/types";
 
-export const getContext = (req: AuthedRequest, res: Response) => {
-  ok(res, req.ctx);
+import { loadRoleNamesForUser } from "./auth.service";
+
+export const getContext = async (req: AuthedRequest, res: Response) => {
+  const roleNames = await loadRoleNamesForUser(toDbId(req.ctx.userId), req.ctx.tenantId);
+  ok(res, { ...req.ctx, roleNames });
 };
 
 export const checkToken = (req: AuthedRequest, res: Response) => {

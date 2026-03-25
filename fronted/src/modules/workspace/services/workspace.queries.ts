@@ -103,10 +103,11 @@ export const useProjectStatisticsQuery = (projectId: string) =>
     enabled: Boolean(projectId),
   })
 
-export const useTodoListQuery = (params: URLSearchParams) =>
+export const useTodoListQuery = (params: URLSearchParams, enabled = true) =>
   useQuery<ApiTask[], Error, WorkTask[]>({
     queryKey: workspaceQueryKeys.todoList(params.toString()),
     queryFn: () => workspaceApi.getTodoTasks(params),
+    enabled,
     select: (items) => items.map(mapTaskToView),
   })
 
@@ -130,7 +131,6 @@ export const useTodoKanbanQuery = (params: URLSearchParams) =>
       return [
         { key: 'todo-board', title: '待开始', dotColor: '#8a92ff', count: grouped.notStarted?.length ?? 0, tasks: (grouped.notStarted ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
         { key: 'doing-board', title: '进行中', dotColor: '#5b79ff', count: grouped.inProgress?.length ?? 0, tasks: (grouped.inProgress ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
-        { key: 'review-board', title: '待审核', dotColor: '#f7c44b', count: grouped.review?.length ?? 0, tasks: (grouped.review ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
         { key: 'done-board', title: '已完成', dotColor: '#22d7a8', count: grouped.completed?.length ?? 0, tasks: (grouped.completed ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
         { key: 'delay-board', title: '延期', dotColor: '#ff7b88', count: grouped.delayed?.length ?? 0, tasks: (grouped.delayed ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
       ]

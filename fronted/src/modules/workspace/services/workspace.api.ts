@@ -19,8 +19,10 @@ export type ApiTask = {
   projectId?: string
   project?: { id: string; projectName: string; status?: string } | null
   priority?: '0' | '1' | '2' | '3'
-  status: '0' | '1' | '2' | '3' | '4'
+  status: '0' | '1' | '2' | '3'
   dueTime?: string
+  dueText?: string
+  dueCategory?: 'today' | 'week' | 'overdue' | 'completed'
   startTime?: string
   progress: number
   assignee?: ApiTaskUser | null
@@ -107,7 +109,7 @@ export type UpdateTaskPayload = Partial<{
   startTime: string
   dueTime: string
   collaboratorUserIds: string[]
-  status: '0' | '1' | '2' | '3' | '4'
+  status: '0' | '1' | '2' | '3'
 }>
 
 export type CreateTaskCommentPayload = {
@@ -155,6 +157,8 @@ export const workspaceApi = {
       userName?: string
       nickName?: string
       roleIds: string[]
+      avatarUrl?: string | null
+      roleNames?: string[]
     }>('/api/auth/context'),
 
   getDashboard: () => apiRequest<ApiDashboard>('/api/tasks/dashboard'),

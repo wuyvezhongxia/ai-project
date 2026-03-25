@@ -9,6 +9,10 @@ export type AuthContext = {
   userName?: string;
   nickName?: string;
   roleIds: ID[];
+  /** Public image URL when JWT carries one or USER_AVATAR_FILE_URL_TEMPLATE resolves avatar file id */
+  avatarUrl?: string | null;
+  /** Role display names from rz_ai.sys_role (filled on GET /api/auth/context) */
+  roleNames?: string[];
 };
 
 export type AuthedRequest = Request & {
@@ -16,7 +20,7 @@ export type AuthedRequest = Request & {
   token?: string;
 };
 
-export type StatusValue = "0" | "1" | "2" | "3" | "4";
+export type StatusValue = "0" | "1" | "2" | "3";
 
 export type UserProfile = {
   userId: ID;

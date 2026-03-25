@@ -49,17 +49,22 @@ const DEFAULT_STATUS = "0";
 const statusKanbanMap: Record<string, string> = {
   "0": "notStarted",
   "1": "inProgress",
-  "2": "review",
-  "3": "completed",
-  "4": "delayed",
+  "2": "completed",
+  "3": "delayed",
 };
 
 const isManager = (ctx: AuthContext) => ctx.roleIds.includes("1");
 
-const buildDueCategory = (dueTime?: string) => {
-  if (!dueTime) return "week";
+const normalizeCollaboratorUserIds = (userIds: string[], excludedUserIds: Array<string | undefined>) => {
+  const excluded = new Set(excludedUserIds.filter((value): value is string => Boolean(value)));
+  return [...new Set(userIds)].filter((userId) => !excluded.has(userId));
+};
 
-  const due = new Date(dueTime);
+const buildDueCategory = (task: Task) => {
+  if (task.status === "2") return "completed";
+  if (!task.dueTime) return "week";
+
+  const due = new Date(task.dueTime);
   if (Number.isNaN(due.getTime())) return "week";
 
   const now = Date.now();
@@ -70,7 +75,7 @@ const buildDueCategory = (dueTime?: string) => {
 };
 
 const buildDueText = (task: Task) => {
-  if (task.status === "3") return "已完成";
+  if (task.status === "2") return "——";
   if (!task.dueTime) return "未设置";
 
   const due = new Date(task.dueTime);
@@ -397,7 +402,7 @@ async function buildTaskView(ctx: AuthContext, task: Task) {
     tags: tagRelRows.map((row) => tagMap.get(String(row.tagId))).filter((item): item is Tag => Boolean(item)),
     isFavorite: false,
     dueText: buildDueText(task),
-    dueCategory: buildDueCategory(task.dueTime),
+    dueCategory: buildDueCategory(task),
   };
 }
 
@@ -413,7 +418,7 @@ export const taskService = {
 
     if (query.favorite === "true") {
       return query.view === "kanban"
-        ? { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] }
+        ? { notStarted: [], inProgress: [], completed: [], delayed: [] }
         : [];
     }
 
@@ -433,7 +438,7 @@ export const taskService = {
       scopeTaskIds = rows.map((row) => String(row.taskId));
       if (scopeTaskIds.length === 0) {
         return query.view === "kanban"
-          ? { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] }
+          ? { notStarted: [], inProgress: [], completed: [], delayed: [] }
           : [];
       }
     }
@@ -453,7 +458,7 @@ export const taskService = {
       tagTaskIds = rows.map((row) => String(row.taskId));
       if (tagTaskIds.length === 0) {
         return query.view === "kanban"
-          ? { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] }
+          ? { notStarted: [], inProgress: [], completed: [], delayed: [] }
           : [];
       }
     }
@@ -496,7 +501,7 @@ export const taskService = {
               },
             }
           : {}),
-        ...(query.dueRange === "overdue" ? { dueTime: { lt: new Date() }, status: { not: "3" } } : {}),
+        ...(query.dueRange === "overdue" ? { dueTime: { lt: new Date() }, status: { not: "2" } } : {}),
       },
       orderBy: [{ dueTime: "asc" }, { priority: "desc" }, { createTime: "desc" }],
     });
@@ -509,7 +514,7 @@ export const taskService = {
           acc[key].push(item);
           return acc;
         },
-        { notStarted: [], inProgress: [], review: [], completed: [], delayed: [] },
+        { notStarted: [], inProgress: [], completed: [], delayed: [] },
       );
     }
 
@@ -523,6 +528,7 @@ export const taskService = {
     if (input.assigneeUserId && !assignee) {
       throw new AppError("Assignee not found", 404);
     }
+    const collaboratorUserIds = normalizeCollaboratorUserIds(input.collaboratorUserIds, [input.assigneeUserId, ctx.userId]);
 
     const now = new Date();
 
@@ -557,7 +563,7 @@ export const taskService = {
       });
     }
 
-    for (const userId of input.collaboratorUserIds) {
+    for (const userId of collaboratorUserIds) {
       const collaborator = await getActiveUser(ctx, userId);
       if (!collaborator) continue;
 
@@ -619,6 +625,11 @@ export const taskService = {
 
     const nextAssigneeUserId = input.assigneeUserId ?? fromDbId(existing.assigneeUserId);
     const assignee = await getActiveUser(ctx, nextAssigneeUserId);
+    const nextCreatorUserId = fromDbId(existing.creatorUserId);
+    const collaboratorUserIds =
+      input.collaboratorUserIds == null
+        ? undefined
+        : normalizeCollaboratorUserIds(input.collaboratorUserIds, [nextAssigneeUserId, nextCreatorUserId]);
 
     const updated = await prisma.task.update({
       where: { id: existing.id },
@@ -633,7 +644,7 @@ export const taskService = {
         progress: typeof input.progress === "number" ? new Prisma.Decimal(input.progress) : undefined,
         startTime: input.startTime ? new Date(input.startTime) : input.startTime === undefined ? undefined : null,
         dueTime: input.dueTime ? new Date(input.dueTime) : input.dueTime === undefined ? undefined : null,
-        finishTime: input.status === undefined ? undefined : input.status === "3" ? new Date() : null,
+        finishTime: input.status === undefined ? undefined : input.status === "2" ? new Date() : null,
         riskLevel: input.riskLevel ?? undefined,
         parentTaskId:
           input.parentTaskId ? toDbId(input.parentTaskId) : input.parentTaskId === undefined ? undefined : null,
@@ -642,7 +653,7 @@ export const taskService = {
       },
     });
 
-    if (input.collaboratorUserIds) {
+    if (collaboratorUserIds) {
       await prisma.taskCollaborator.deleteMany({
         where: {
           tenantId: ctx.tenantId,
@@ -650,7 +661,7 @@ export const taskService = {
         },
       });
 
-      for (const userId of input.collaboratorUserIds) {
+      for (const userId of collaboratorUserIds) {
         const collaborator = await getActiveUser(ctx, userId);
         if (!collaborator) continue;
 
@@ -741,7 +752,7 @@ export const taskService = {
   async updateStatus(ctx: AuthContext, id: string, input: StatusInput) {
     return this.update(ctx, id, {
       status: input.status,
-      ...(input.status === "3" ? { progress: 100 } : {}),
+      ...(input.status === "2" ? { progress: 100 } : {}),
     });
   },
 

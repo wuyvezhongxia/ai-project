@@ -73,10 +73,16 @@ function AppSidebar() {
       </nav>
 
       <div className="sidebar-user">
-        <Avatar size={36}>{authContext?.nickName?.slice(0, 1) ?? '张'}</Avatar>
-        <div>
-          <div className="sidebar-user-name">{authContext?.nickName ?? '张小明'}</div>
-          <div className="sidebar-user-role">产品经理 · Admin</div>
+        <Avatar size={44} src={authContext?.avatarUrl || undefined}>
+          {(authContext?.nickName?.trim() || authContext?.userName?.trim() || '用').slice(0, 1)}
+        </Avatar>
+        <div className="sidebar-user-meta">
+          <div className="sidebar-user-name">
+            {authContext?.nickName?.trim() || authContext?.userName?.trim() || '—'}
+          </div>
+          <div className="sidebar-user-role">
+            {authContext?.roleNames?.length ? authContext.roleNames.join(' · ') : '—'}
+          </div>
         </div>
       </div>
     </aside>

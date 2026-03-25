@@ -25,9 +25,8 @@ const projectStatusMap: Record<string, ProjectCard['status']> = {
 const statusMap: Record<ApiTask['status'], WorkTask['status']> = {
   '0': '待开始',
   '1': '进行中',
-  '2': '待审核',
-  '3': '已完成',
-  '4': '延期',
+  '2': '已完成',
+  '3': '延期',
 }
 
 const priorityMap: Record<string, WorkTask['priority']> = {
@@ -56,6 +55,16 @@ const getDueCategory = (date?: string): WorkTask['dueCategory'] => {
   return 'week'
 }
 
+const resolveDueText = (task: ApiTask) => {
+  if (task.status === '2') return '——'
+  return task.dueText ?? formatDueText(task.dueTime)
+}
+
+const resolveDueCategory = (task: ApiTask): WorkTask['dueCategory'] => {
+  if (task.status === '2') return 'completed'
+  return task.dueCategory ?? getDueCategory(task.dueTime)
+}
+
 const bytesToText = (value?: number) => {
   if (!value) return '未知大小'
   if (value < 1024) return `${value} B`
@@ -69,11 +78,11 @@ export const mapTaskToView = (task: ApiTask): WorkTask => ({
   project: task.project?.projectName ?? '未归属项目',
   priority: priorityMap[task.priority ?? '0'] ?? 'P3',
   status: statusMap[task.status],
-  dueText: formatDueText(task.dueTime),
+  dueText: resolveDueText(task),
   owner: task.assignee?.nickName ?? '未分配',
-  completed: task.status === '3',
+  completed: task.status === '2',
   favorite: task.isFavorite,
-  dueCategory: getDueCategory(task.dueTime),
+  dueCategory: resolveDueCategory(task),
   projectId: task.projectId,
   ownerId: task.assigneeUserId,
   startAt: task.startTime,
@@ -90,6 +99,9 @@ export const mapTaskToView = (task: ApiTask): WorkTask => ({
 
 export const mapTaskDetailToView = (task: ApiTask): TaskDetailView => {
   const base = mapTaskToView(task)
+  const excludedCollaboratorIds = new Set(
+    [task.assigneeUserId, task.creatorUserId].filter((value): value is string => Boolean(value)),
+  )
 
   const subtasks: Subtask[] =
     task.subtasks?.map((item) => ({
@@ -136,7 +148,9 @@ export const mapTaskDetailToView = (task: ApiTask): TaskDetailView => {
 
   return {
     ...base,
+    creatorId: task.creatorUserId,
     creatorName: task.creator?.nickName ?? comments[0]?.userName ?? '未知用户',
+    collaborators: base.collaborators?.filter((user) => !excludedCollaboratorIds.has(user.userId)) ?? [],
     attachments,
     comments,
     activities,
@@ -173,7 +187,6 @@ export const mapProjectToCard = (project: ApiProject): ProjectCard => ({
 export const mapProjectTaskKanban = (input: Record<string, ApiTask[]>) => [
   { key: 'todo', title: '待开始', dotColor: '#8a92ff', tasks: input.notStarted ?? [] },
   { key: 'doing', title: '进行中', dotColor: '#5b79ff', tasks: input.inProgress ?? [] },
-  { key: 'review', title: '待审核', dotColor: '#f7c44b', tasks: input.review ?? [] },
   { key: 'done', title: '已完成', dotColor: '#22d7a8', tasks: input.completed ?? [] },
   { key: 'delay', title: '延期', dotColor: '#ff7b88', tasks: input.delayed ?? [] },
 ].map((column) => ({
@@ -188,15 +201,15 @@ export const mapProjectTaskKanban = (input: Record<string, ApiTask[]>) => [
 }))
 
 export const mapTaskListToBoardColumns = (tasks: ApiTask[]) => {
-  const groups: Array<{ key: string; title: string; dotColor: string; match: ApiTask['status'] }> = [
-    { key: 'todo-board', title: '待开始', dotColor: '#8a92ff', match: '0' },
-    { key: 'doing-board', title: '进行中', dotColor: '#5b79ff', match: '1' },
-    { key: 'review-board', title: '待审核', dotColor: '#f7c44b', match: '2' },
-    { key: 'done-board', title: '已完成', dotColor: '#22d7a8', match: '3' },
+  const groups: Array<{ key: string; title: string; dotColor: string; matches: ApiTask['status'][] }> = [
+    { key: 'todo-board', title: '待开始', dotColor: '#8a92ff', matches: ['0'] },
+    { key: 'doing-board', title: '进行中', dotColor: '#5b79ff', matches: ['1'] },
+    { key: 'done-board', title: '已完成', dotColor: '#22d7a8', matches: ['3'] },
+    { key: 'delay-board', title: '延期', dotColor: '#ff7b88', matches: ['3'] },
   ]
 
   return groups.map((group) => {
-    const matched = tasks.filter((task) => task.status === group.match)
+    const matched = tasks.filter((task) => group.matches.includes(task.status))
     return {
       key: group.key,
       title: group.title,
@@ -229,7 +242,7 @@ export const mapGanttRows = (
       label: item.taskName,
       start: Number(((offsetDays / totalDays) * 100).toFixed(2)),
       width: Number(((widthDays / totalDays) * 100).toFixed(2)),
-      color: item.status === '4' ? '#ff7a87' : item.status === '3' ? '#22d7a8' : '#5a7cff',
+      color: item.status === '3' ? '#ff7a87' : item.status === '2' ? '#22d7a8' : '#5a7cff',
       note: `${Math.round(item.progress)}%`,
     }
   })

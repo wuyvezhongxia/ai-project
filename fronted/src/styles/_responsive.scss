@@ -8,6 +8,11 @@
   .project-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .kanban-board-single-list,
+  .kanban-board-single .kanban-column-body {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1200px) {
@@ -18,17 +23,12 @@
 
   .todo-list-header,
   .todo-list-row {
-    grid-template-columns: minmax(220px, 2fr) 1fr 0.9fr 0.8fr 1fr;
+    grid-template-columns: minmax(220px, 2fr) 0.95fr 0.85fr 0.75fr 0.95fr 0.9fr 0.75fr;
   }
 
-  .todo-list-header span:nth-child(6),
-  .todo-list-header span:nth-child(7) {
-    display: none;
-  }
-
-  .todo-list-row > :nth-child(6),
-  .todo-list-row > :nth-child(7) {
-    display: none;
+  .kanban-board-single-list,
+  .kanban-board-single .kanban-column-body {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -105,6 +105,11 @@
     grid-template-columns: 1fr;
   }
 
+  .kanban-board-single-list,
+  .kanban-board-single .kanban-column-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .comment-composer {
     grid-template-columns: 1fr;
   }
@@ -170,5 +175,10 @@
   .todo-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .kanban-board-single-list,
+  .kanban-board-single .kanban-column-body {
+    grid-template-columns: 1fr;
   }
 }
