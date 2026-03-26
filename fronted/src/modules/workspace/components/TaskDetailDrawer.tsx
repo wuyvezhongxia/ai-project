@@ -34,6 +34,7 @@ import {
 } from 'antd'
 import { useWorkspaceStore } from '../store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../utils/task-ui'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../utils/avatar'
 import {
   useProjectOptionsQuery,
   useAuthContextQuery,
@@ -133,7 +134,7 @@ function TaskDetailDrawer() {
       renderItem={(item) => (
         <List.Item className="comment-row">
           <List.Item.Meta
-            avatar={<Avatar>{item.userName.slice(0, 1)}</Avatar>}
+            avatar={<Avatar style={getAvatarStyle(getAvatarSeed(item.userName))}>{getAvatarLabel(item.userName)}</Avatar>}
             title={
               <Space size={8} wrap>
                 <span className="comment-user-name">{item.userName}</span>
@@ -369,7 +370,9 @@ function TaskDetailDrawer() {
                     </Flex>
                     <div className="rich-card comment-panel">{commentsContent}</div>
                     <div className="comment-composer">
-                      <Avatar className="comment-composer-avatar">{currentCommentUserName.slice(0, 1)}</Avatar>
+                      <Avatar className="comment-composer-avatar" style={getAvatarStyle(getAvatarSeed(currentCommentUserName))}>
+                        {getAvatarLabel(currentCommentUserName)}
+                      </Avatar>
                       <Input
                         value={draftComment}
                         className="comment-composer-input"
@@ -465,7 +468,9 @@ function TaskDetailDrawer() {
                       <div className="info-row">
                         <span>创建人</span>
                         <Space>
-                          <Avatar size="small">{selectedTask.creatorName.slice(0, 1)}</Avatar>
+                          <Avatar size="small" style={getAvatarStyle(getAvatarSeed(selectedTask.creatorId, selectedTask.creatorName))}>
+                            {getAvatarLabel(selectedTask.creatorName)}
+                          </Avatar>
                           <span>{selectedTask.creatorName}</span>
                         </Space>
                       </div>
@@ -593,7 +598,7 @@ function TaskDetailDrawer() {
                 renderItem={(item) => (
                   <List.Item>
                     <List.Item.Meta
-                      avatar={<Avatar>{item.userName.slice(0, 1)}</Avatar>}
+                      avatar={<Avatar style={getAvatarStyle(getAvatarSeed(item.userName))}>{getAvatarLabel(item.userName)}</Avatar>}
                       title={`${item.userName} · ${item.createTime}`}
                       description={`${item.actionType} · ${item.actionContent}`}
                     />

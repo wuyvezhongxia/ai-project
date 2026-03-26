@@ -2,6 +2,7 @@ import { Checkbox, Avatar, Button, Card, Flex, Input, List, Progress, Space, Tag
 import { aiMessages, statCards } from '../../workspace/data/mock'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
 import {
   useDashboardQuery,
   useMustDoTodayQuery,
@@ -82,7 +83,7 @@ function DashboardPage() {
                         </div>
                       </button>
                       <div className="task-side">
-                        <Avatar>{task.owner.slice(0, 1)}</Avatar>
+                        <Avatar style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>{getAvatarLabel(task.owner)}</Avatar>
                         <span>{task.dueText}</span>
                       </div>
                     </div>
@@ -144,7 +145,7 @@ function DashboardPage() {
               {memberLoads.map((member) => (
                 <div key={member.name} className="workload-row">
                   <Space>
-                    <Avatar>{member.name.slice(0, 1)}</Avatar>
+                    <Avatar style={getAvatarStyle(getAvatarSeed(member.userId, member.name))}>{getAvatarLabel(member.name)}</Avatar>
                     <span>{member.name}</span>
                   </Space>
                   <div className="workload-bar">

@@ -4,6 +4,7 @@ import type { ComponentType } from 'react'
 import type { PageKey } from '../../modules/workspace/types'
 import { navGroups } from '../../modules/workspace/data/mock'
 import { useAuthContextQuery, useSidebarNavCounts } from '../../modules/workspace/services/workspace.queries'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../modules/workspace/utils/avatar'
 import { NavLink } from 'react-router-dom'
 
 const routeMap: Record<PageKey, string> = {
@@ -73,8 +74,12 @@ function AppSidebar() {
       </nav>
 
       <div className="sidebar-user">
-        <Avatar size={44} src={authContext?.avatarUrl || undefined}>
-          {(authContext?.nickName?.trim() || authContext?.userName?.trim() || '用').slice(0, 1)}
+        <Avatar
+          size={44}
+          src={authContext?.avatarUrl || undefined}
+          style={authContext?.avatarUrl ? undefined : getAvatarStyle(getAvatarSeed(authContext?.userId, authContext?.nickName, authContext?.userName))}
+        >
+          {getAvatarLabel(authContext?.nickName?.trim() || authContext?.userName?.trim() || '用')}
         </Avatar>
         <div className="sidebar-user-meta">
           <div className="sidebar-user-name">

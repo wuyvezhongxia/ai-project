@@ -7,6 +7,7 @@ import type { EChartsOption } from 'echarts'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle, getNeutralAvatarStyle } from '../../workspace/utils/avatar'
 import {
   useProjectGanttQuery,
   useProjectsQuery,
@@ -15,14 +16,6 @@ import {
 } from '../../workspace/services/workspace.queries'
 
 const projectAccentColors = ['#6a83ff', '#20d6a7', '#9b7bff', '#ff8f6b', '#f6c54f', '#37c3ff']
-const memberAvatarColors = [
-  'linear-gradient(135deg, rgba(92, 119, 255, 0.92), rgba(121, 93, 255, 0.92))',
-  'linear-gradient(135deg, rgba(32, 214, 167, 0.92), rgba(22, 170, 153, 0.92))',
-  'linear-gradient(135deg, rgba(255, 143, 107, 0.92), rgba(255, 108, 154, 0.92))',
-  'linear-gradient(135deg, rgba(246, 197, 79, 0.92), rgba(255, 160, 67, 0.92))',
-  'linear-gradient(135deg, rgba(55, 195, 255, 0.92), rgba(81, 109, 255, 0.92))',
-  'linear-gradient(135deg, rgba(155, 123, 255, 0.92), rgba(111, 124, 255, 0.92))',
-]
 
 const hashString = (value: string) =>
   Array.from(value).reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7)
@@ -287,16 +280,18 @@ function ProjectsPage() {
                 <span className="danger-text">{project.delayCount} 延期</span>
               </div>
               <div className="avatar-stack">
-                {project.members.map((member) => (
-                  <Avatar
-                    key={member}
-                    size="small"
-                    className="avatar-stack-item"
-                    style={{ background: pickStableColor(`${project.id}-${member}`, memberAvatarColors) }}
-                  >
-                    {member}
+                <Avatar
+                  size="small"
+                  className="avatar-stack-item"
+                  style={getAvatarStyle(getAvatarSeed(project.ownerId, project.owner))}
+                >
+                  {project.ownerAvatarLabel}
+                </Avatar>
+                {project.extraMemberCount > 0 ? (
+                  <Avatar size="small" className="avatar-stack-item avatar-stack-count" style={getNeutralAvatarStyle()}>
+                    +{project.extraMemberCount}
                   </Avatar>
-                ))}
+                ) : null}
               </div>
               </button>
             )
@@ -350,7 +345,9 @@ function ProjectsPage() {
                           </Space>
                           <div className="board-task-footer">
                             <span>{task.owner}</span>
-                            <Avatar size="small">{task.assignee}</Avatar>
+                            <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
+                              {task.assignee || getAvatarLabel(task.owner)}
+                            </Avatar>
                           </div>
                         </button>
                       ))
@@ -387,7 +384,9 @@ function ProjectsPage() {
                   <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
                   <span>{task.dueText}</span>
                   <Space>
-                    <Avatar size="small">{task.owner.slice(0, 1)}</Avatar>
+                    <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
+                      {getAvatarLabel(task.owner)}
+                    </Avatar>
                     <span>{task.owner}</span>
                   </Space>
                 </button>

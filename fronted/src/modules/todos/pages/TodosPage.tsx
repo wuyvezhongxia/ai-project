@@ -5,6 +5,7 @@ import type { MenuProps } from 'antd'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import type { TodoScope, TodoView } from '../../workspace/types'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
 import { useDeleteTaskMutation, useTodoKanbanQuery, useTodoListQuery } from '../../workspace/services/workspace.queries'
 
 const statusValueMap: Record<string, string> = {
@@ -234,7 +235,9 @@ function TodosPage() {
                 <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
                 <span className={getDueTextClassName(task.dueCategory)}>{task.dueText}</span>
                 <Space>
-                  <Avatar size="small">{task.owner.slice(0, 1)}</Avatar>
+                  <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
+                    {getAvatarLabel(task.owner)}
+                  </Avatar>
                   <span>{task.owner}</span>
                 </Space>
                 <div className="todo-actions">
@@ -308,7 +311,9 @@ function TodosPage() {
                           </Space>
                           <div className="board-task-footer">
                             <span className={getDueTextClassName(task.dueCategory)}>{task.dueText}</span>
-                            <Avatar size="small">{task.assignee}</Avatar>
+                            <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
+                              {task.assignee || getAvatarLabel(task.owner)}
+                            </Avatar>
                           </div>
                         </button>
                       ))
@@ -332,7 +337,9 @@ function TodosPage() {
                     </Space>
                     <div className="board-task-footer">
                       <span className={getDueTextClassName(task.dueCategory)}>{task.dueText}</span>
-                      <Avatar size="small">{task.assignee}</Avatar>
+                      <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
+                        {task.assignee || getAvatarLabel(task.owner)}
+                      </Avatar>
                     </div>
                   </button>
                 ))
