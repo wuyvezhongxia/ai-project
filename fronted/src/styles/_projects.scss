@@ -268,8 +268,15 @@
 }
 
 .empty-board-hint {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100%;
   color: #747ea2;
   font-size: 13px;
+  text-align: center;
 }
 
 .todo-list-header-project,
