@@ -49,6 +49,29 @@ const ensureProjectManager = (ctx: AuthContext, project: Project) => {
   throw new AppError("No permission to manage project", 403);
 };
 
+const isDelayedTask = (task: { status: string; dueTime?: Date | string | null }) => {
+  if (task.status === "3") return true;
+  if (task.status === "2" || !task.dueTime) return false;
+
+  const due = new Date(task.dueTime);
+  return !Number.isNaN(due.getTime()) && due.getTime() < Date.now();
+};
+
+const isRiskTask = (task: { status: string; riskLevel?: string | null; dueTime?: Date | string | null }) => {
+  if (task.status === "2" || isDelayedTask(task)) return false;
+
+  const dueSoon =
+    task.dueTime != null &&
+    (() => {
+      const due = new Date(task.dueTime);
+      if (Number.isNaN(due.getTime())) return false;
+      const diff = due.getTime() - Date.now();
+      return diff >= 0 && diff <= 24 * 60 * 60 * 1000;
+    })();
+
+  return ["2", "3"].includes(task.riskLevel ?? "0") || dueSoon;
+};
+
 const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>>) => {
   const project = toProject(row);
   const [owner, members, tasks, tagRels] = await Promise.all([
@@ -78,6 +101,8 @@ const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>
     membersCount: members.length,
     taskCount: tasks.length,
     completedTaskCount: tasks.filter((item) => item.status === "2").length,
+    riskTaskCount: tasks.filter((item) => isRiskTask(item)).length,
+    delayedTaskCount: tasks.filter((item) => isDelayedTask(item)).length,
     tags: tagRows.map(toTag),
   };
 };
@@ -357,10 +382,10 @@ export const projectService = {
 
     if (view === "kanban") {
       return {
-        notStarted: tasks.filter((item) => item.status === "0"),
-        inProgress: tasks.filter((item) => item.status === "1"),
+        notStarted: tasks.filter((item) => item.status === "0" && !isDelayedTask(item)),
+        inProgress: tasks.filter((item) => item.status === "1" && !isDelayedTask(item)),
         completed: tasks.filter((item) => item.status === "2"),
-        delayed: tasks.filter((item) => item.status === "3"),
+        delayed: tasks.filter((item) => isDelayedTask(item)),
       };
     }
 
@@ -392,7 +417,7 @@ export const projectService = {
     });
     const total = tasks.length;
     const completed = tasks.filter((item) => item.status === "2").length;
-    const delayed = tasks.filter((item) => item.status === "3").length;
+    const delayed = tasks.filter((item) => isDelayedTask(item)).length;
     const overdue = tasks.filter((item) => item.status !== "3" && item.dueTime && item.dueTime < new Date()).length;
 
     return {

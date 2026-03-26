@@ -1,8 +1,9 @@
 .dashboard-shell {
+  --dashboard-shell-padding: 28px;
   min-width: 0;
   height: 100vh;
   overflow-y: auto;
-  padding: 28px;
+  padding: var(--dashboard-shell-padding);
 }
 
 .page-stack {
@@ -12,11 +13,29 @@
 }
 
 .dashboard-header {
+  position: relative;
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 24px;
+}
+
+.dashboard-header::after {
+  content: '';
+  position: absolute;
+  right: calc(var(--dashboard-shell-padding) * -1);
+  bottom: -12px;
+  left: calc(var(--dashboard-shell-padding) * -1);
+  border-bottom: 1px solid var(--pm-border-topbar);
+}
+
+.dashboard-header-main {
+  min-width: 0;
+}
+
+.dashboard-header-actions {
+  flex-shrink: 0;
 }
 
 .dashboard-header h1 {

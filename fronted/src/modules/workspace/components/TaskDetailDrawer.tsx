@@ -47,7 +47,6 @@ const statusOptions = [
   { label: '待开始', value: '待开始' },
   { label: '进行中', value: '进行中' },
   { label: '已完成', value: '已完成' },
-  { label: '延期', value: '延期' },
 ]
 
 const priorityOptions = [
@@ -57,11 +56,10 @@ const priorityOptions = [
   { label: 'P3', value: 'P3' },
 ]
 
-const statusValueMap: Record<(typeof statusOptions)[number]['value'], '0' | '1' | '2' | '3'> = {
+const statusValueMap: Record<(typeof statusOptions)[number]['value'], '0' | '1' | '2'> = {
   待开始: '0',
   进行中: '1',
   已完成: '2',
-  延期: '3',
 }
 
 const priorityValueMap: Record<(typeof priorityOptions)[number]['value'], '0' | '1' | '2' | '3'> = {
@@ -127,6 +125,8 @@ function TaskDetailDrawer() {
   )
   const collaboratorOptions = userOptions.filter((user) => !excludedCollaboratorIds.has(user.value))
   const currentCommentUserName = authContext?.nickName ?? authContext?.userName ?? '我'
+  const editableStatusValue =
+    selectedTask.rawStatus === '2' ? '已完成' : selectedTask.rawStatus === '0' ? '待开始' : '进行中'
   const commentsContent = selectedTask.comments.length ? (
     <List
       dataSource={selectedTask.comments}
@@ -446,7 +446,7 @@ function TaskDetailDrawer() {
                         <Select
                           size="small"
                           className="info-row-select"
-                          value={selectedTask.status}
+                          value={editableStatusValue}
                           onChange={(value) => void handleTaskUpdate({ status: statusValueMap[value] })}
                           options={statusOptions}
                         />

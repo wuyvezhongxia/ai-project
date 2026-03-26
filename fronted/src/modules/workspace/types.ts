@@ -9,6 +9,8 @@ export type TodoView = 'list' | 'kanban'
 export type WorkTask = {
   id: string
   title: string
+  createAt?: string
+  rawStatus?: '0' | '1' | '2' | '3'
   project: string
   priority: 'P0' | 'P1' | 'P2' | 'P3'
   status: '待开始' | '进行中' | '已完成' | '延期'

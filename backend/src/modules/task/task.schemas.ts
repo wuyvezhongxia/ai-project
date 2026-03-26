@@ -41,12 +41,12 @@ export const createTaskSchema = z.object({
 });
 
 export const updateTaskSchema = createTaskSchema.partial().extend({
-  status: z.enum(["0", "1", "2", "3"]).optional(),
+  status: z.enum(["0", "1", "2"]).optional(),
   riskLevel: z.enum(["0", "1", "2", "3"]).optional(),
 });
 
 export const taskStatusSchema = z.object({
-  status: z.enum(["0", "1", "2", "3"]),
+  status: z.enum(["0", "1", "2"]),
 });
 
 export const subtaskSchema = z.object({

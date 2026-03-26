@@ -69,7 +69,7 @@ function DashboardPage() {
                         onChange={() =>
                           updateStatusMutation.mutate({
                             taskId: task.id,
-                            status: checked ? '1' : '3',
+                            status: checked ? '1' : '2',
                           })
                         }
                       />

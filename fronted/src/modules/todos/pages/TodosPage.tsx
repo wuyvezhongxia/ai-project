@@ -75,7 +75,9 @@ function TodosPage() {
   const filteredTodoTasks = useMemo(() => {
     const tasks = [...todoTasks]
 
-    if (todoSort === '优先级') {
+    if (todoSort === '创建时间') {
+      tasks.sort((a, b) => (b.createAt ?? '').localeCompare(a.createAt ?? ''))
+    } else if (todoSort === '优先级') {
       tasks.sort((a, b) => prioritySortMap[a.priority] - prioritySortMap[b.priority])
     } else if (todoSort === '任务名称') {
       tasks.sort((a, b) => a.title.localeCompare(b.title))
@@ -131,6 +133,7 @@ function TodosPage() {
     selectedKeys: [todoSort],
     items: [
       { key: '截止时间', label: '截止时间' },
+      { key: '创建时间', label: '创建时间' },
       { key: '优先级', label: '优先级' },
       { key: '任务名称', label: '任务名称' },
     ],

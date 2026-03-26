@@ -4,7 +4,6 @@
   }
 
   .kanban-board,
-  .project-card-grid,
   .project-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -12,6 +11,11 @@
   .kanban-board-single-list,
   .kanban-board-single .kanban-column-body {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .project-kanban-board {
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+    gap: 12px;
   }
 }
 
@@ -99,7 +103,6 @@
   .task-form-grid,
   .stat-grid,
   .attachment-grid,
-  .project-card-grid,
   .project-stats-grid,
   .kanban-board {
     grid-template-columns: 1fr;
@@ -108,6 +111,11 @@
   .kanban-board-single-list,
   .kanban-board-single .kanban-column-body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .project-kanban-board {
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+    gap: 12px;
   }
 
   .comment-composer {
@@ -144,7 +152,8 @@
 
 @media (max-width: 640px) {
   .dashboard-shell {
-    padding: 18px;
+    --dashboard-shell-padding: 18px;
+    padding: var(--dashboard-shell-padding);
   }
 
   .app-sidebar {

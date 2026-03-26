@@ -37,6 +37,9 @@ const priorityMap: Record<string, WorkTask['priority']> = {
 }
 
 const workloadColors = ['#f6c54f', '#ff7c8b', '#1ed6a6', '#6f7cff', '#9b7bff']
+const ganttActiveColors = ['#5a7cff', '#8e7dff', '#37c7ff', '#f6c54f', '#ff9a62']
+const hashString = (value: string) =>
+  Array.from(value).reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7)
 
 const formatDueText = (date?: string) => {
   if (!date) return '未设置'
@@ -53,6 +56,13 @@ const getDueCategory = (date?: string): WorkTask['dueCategory'] => {
   if (value.isBefore(dayjs(), 'day')) return 'overdue'
   if (value.isSame(dayjs(), 'day')) return 'today'
   return 'week'
+}
+
+const resolveTaskStatus = (task: ApiTask): WorkTask['status'] => {
+  if (task.status === '2') return '已完成'
+  if (task.status === '3') return '延期'
+  if ((task.dueCategory ?? getDueCategory(task.dueTime)) === 'overdue') return '延期'
+  return statusMap[task.status]
 }
 
 const resolveDueText = (task: ApiTask) => {
@@ -75,9 +85,11 @@ const bytesToText = (value?: number) => {
 export const mapTaskToView = (task: ApiTask): WorkTask => ({
   id: String(task.id),
   title: task.taskName,
+  createAt: task.createTime,
+  rawStatus: task.status,
   project: task.project?.projectName ?? '未归属项目',
   priority: priorityMap[task.priority ?? '0'] ?? 'P3',
-  status: statusMap[task.status],
+  status: resolveTaskStatus(task),
   dueText: resolveDueText(task),
   owner: task.assignee?.nickName ?? '未分配',
   completed: task.status === '2',
@@ -164,7 +176,14 @@ export const mapRiskTaskToView = (task: ApiTask): RiskTask => ({
   title: task.taskName,
   project: task.project?.projectName ?? '未归属项目',
   priority: priorityMap[task.priority ?? '0'] ?? 'P3',
-  risk: task.riskLevel === '3' ? '严重风险' : '风险提醒',
+  risk:
+    resolveTaskStatus(task) === '延期'
+      ? '已延期'
+      : resolveDueCategory(task) === 'today'
+        ? '今日到期'
+        : task.riskLevel === '3'
+          ? '严重风险'
+          : '风险提醒',
   dueText: formatDueText(task.dueTime),
 })
 
@@ -173,12 +192,15 @@ export const mapProjectToCard = (project: ApiProject): ProjectCard => ({
   name: project.projectName,
   owner: project.owner?.nickName ?? '未分配',
   dueAt: project.endTime ? dayjs(project.endTime).format('YYYY.MM.DD') : '未设置',
-  progress: Number(project.progress ?? 0),
+  progress:
+    (project.taskCount ?? 0) > 0
+      ? Number((((project.completedTaskCount ?? 0) / (project.taskCount ?? 0)) * 100).toFixed(2))
+      : 0,
   status: projectStatusMap[project.status] ?? '进行中',
   taskCount: project.taskCount ?? 0,
   doneCount: project.completedTaskCount ?? 0,
-  riskCount: 0,
-  delayCount: 0,
+  riskCount: project.riskTaskCount ?? 0,
+  delayCount: project.delayedTaskCount ?? 0,
   members: Array.from({ length: Math.min(project.membersCount ?? 1, 3) }, (_, index) =>
     index === 0 ? (project.owner?.nickName?.slice(0, 1) ?? '项') : String(index + 1),
   ),
@@ -201,15 +223,15 @@ export const mapProjectTaskKanban = (input: Record<string, ApiTask[]>) => [
 }))
 
 export const mapTaskListToBoardColumns = (tasks: ApiTask[]) => {
-  const groups: Array<{ key: string; title: string; dotColor: string; matches: ApiTask['status'][] }> = [
-    { key: 'todo-board', title: '待开始', dotColor: '#8a92ff', matches: ['0'] },
-    { key: 'doing-board', title: '进行中', dotColor: '#5b79ff', matches: ['1'] },
-    { key: 'done-board', title: '已完成', dotColor: '#22d7a8', matches: ['3'] },
-    { key: 'delay-board', title: '延期', dotColor: '#ff7b88', matches: ['3'] },
+  const groups: Array<{ key: string; title: WorkTask['status']; dotColor: string }> = [
+    { key: 'todo-board', title: '待开始', dotColor: '#8a92ff' },
+    { key: 'doing-board', title: '进行中', dotColor: '#5b79ff' },
+    { key: 'done-board', title: '已完成', dotColor: '#22d7a8' },
+    { key: 'delay-board', title: '延期', dotColor: '#ff7b88' },
   ]
 
   return groups.map((group) => {
-    const matched = tasks.filter((task) => group.matches.includes(task.status))
+    const matched = tasks.filter((task) => resolveTaskStatus(task) === group.title)
     return {
       key: group.key,
       title: group.title,
@@ -232,17 +254,31 @@ export const mapGanttRows = (
   const maxEnd = endCandidates.reduce((max, value) => (value.isAfter(max) ? value : max), endCandidates[0] ?? dayjs().add(7, 'day'))
   const totalDays = Math.max(maxEnd.diff(minStart, 'day') + 1, 1)
 
-  return items.map((item) => {
+  let previousColor = ''
+
+  return items.map((item, index) => {
     const start = dayjs(item.startTime ?? item.dueTime ?? dayjs().toISOString())
     const end = dayjs(item.dueTime ?? item.startTime ?? dayjs().toISOString())
     const offsetDays = Math.max(start.diff(minStart, 'day'), 0)
     const widthDays = Math.max(end.diff(start, 'day') + 1, 1)
+    const baseColor =
+      item.status === '3'
+        ? '#ff7a87'
+        : item.status === '2'
+          ? '#22d7a8'
+          : ganttActiveColors[(index + Math.abs(hashString(item.taskId || item.taskName))) % ganttActiveColors.length]
+    const color =
+      baseColor === previousColor && item.status !== '2' && item.status !== '3'
+        ? ganttActiveColors[(ganttActiveColors.indexOf(baseColor) + 1) % ganttActiveColors.length]
+        : baseColor
+
+    previousColor = color
 
     return {
       label: item.taskName,
       start: Number(((offsetDays / totalDays) * 100).toFixed(2)),
       width: Number(((widthDays / totalDays) * 100).toFixed(2)),
-      color: item.status === '3' ? '#ff7a87' : item.status === '2' ? '#22d7a8' : '#5a7cff',
+      color,
       note: `${Math.round(item.progress)}%`,
     }
   })

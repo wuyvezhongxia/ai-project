@@ -16,6 +16,7 @@ export type ApiTask = {
   id: string
   taskName: string
   taskDesc?: string
+  createTime?: string
   projectId?: string
   project?: { id: string; projectName: string; status?: string } | null
   priority?: '0' | '1' | '2' | '3'
@@ -82,6 +83,8 @@ export type ApiProject = {
   status: '0' | '1' | '2' | '3'
   taskCount: number
   completedTaskCount: number
+  riskTaskCount?: number
+  delayedTaskCount?: number
   membersCount?: number
 }
 

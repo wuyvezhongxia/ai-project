@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { Avatar, Button, Card, Empty, Progress, Segmented, Space, Spin, Tag } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+import * as echarts from 'echarts'
+import type { EChartsOption } from 'echarts'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
@@ -10,6 +13,57 @@ import {
   useProjectStatisticsQuery,
   useProjectTasksQuery,
 } from '../../workspace/services/workspace.queries'
+
+const projectAccentColors = ['#6a83ff', '#20d6a7', '#9b7bff', '#ff8f6b', '#f6c54f', '#37c3ff']
+const memberAvatarColors = [
+  'linear-gradient(135deg, rgba(92, 119, 255, 0.92), rgba(121, 93, 255, 0.92))',
+  'linear-gradient(135deg, rgba(32, 214, 167, 0.92), rgba(22, 170, 153, 0.92))',
+  'linear-gradient(135deg, rgba(255, 143, 107, 0.92), rgba(255, 108, 154, 0.92))',
+  'linear-gradient(135deg, rgba(246, 197, 79, 0.92), rgba(255, 160, 67, 0.92))',
+  'linear-gradient(135deg, rgba(55, 195, 255, 0.92), rgba(81, 109, 255, 0.92))',
+  'linear-gradient(135deg, rgba(155, 123, 255, 0.92), rgba(111, 124, 255, 0.92))',
+]
+
+const hashString = (value: string) =>
+  Array.from(value).reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7)
+
+const pickStableColor = (seed: string, palette: string[]) => palette[Math.abs(hashString(seed)) % palette.length]
+const hexToRgba = (hex: string, alpha: number) => {
+  const normalized = hex.replace('#', '')
+  const fullHex =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((char) => `${char}${char}`)
+          .join('')
+      : normalized
+  const value = Number.parseInt(fullHex, 16)
+  const r = (value >> 16) & 255
+  const g = (value >> 8) & 255
+  const b = value & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function ProjectStatsChart({ option, className }: { option: EChartsOption; className?: string }) {
+  const chartRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!chartRef.current) return
+
+    const chart = echarts.init(chartRef.current)
+    chart.setOption(option)
+
+    const handleResize = () => chart.resize()
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+    }
+  }, [option])
+
+  return <div ref={chartRef} className={className ?? 'project-stats-chart'} />
+}
 
 function ProjectsPage() {
   const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
@@ -33,6 +87,112 @@ function ProjectsPage() {
   const { data: projectStats } = useProjectStatisticsQuery(activeProject?.id ?? '')
   const activeProjectBoard = activeProjectBoardData as BoardColumn[]
   const activeProjectList = activeProjectListData as WorkTask[]
+  const resolvedProjectStats = useMemo(
+    () => ({
+      totalTasks: projectStats?.totalTasks ?? activeProject?.taskCount ?? 0,
+      completedTasks: projectStats?.completedTasks ?? activeProject?.doneCount ?? 0,
+      delayedTasks: projectStats?.delayedTasks ?? activeProject?.delayCount ?? 0,
+      overdueTasks: projectStats?.overdueTasks ?? activeProject?.delayCount ?? 0,
+      completionRate: projectStats?.completionRate ?? activeProject?.progress ?? 0,
+      riskTasks: activeProject?.riskCount ?? 0,
+    }),
+    [activeProject, projectStats],
+  )
+  const activeProjectKanbanColumns = useMemo(() => {
+    const riskTasks = activeProjectList
+      .filter((task) => task.status !== '已完成' && task.status !== '延期')
+      .filter((task) => task.dueCategory === 'today' || ['2', '3'].includes(task.riskLevel ?? '0'))
+      .map((task) => ({
+        ...task,
+        assignee: task.owner.slice(0, 1),
+      }))
+
+    const riskColumn: BoardColumn = {
+      key: 'risk',
+      title: '风险',
+      dotColor: '#f6c54f',
+      count: riskTasks.length,
+      tasks: riskTasks,
+    }
+
+    const todoColumn = activeProjectBoard.find((column) => column.key === 'todo')
+    const doingColumn = activeProjectBoard.find((column) => column.key === 'doing')
+    const doneColumn = activeProjectBoard.find((column) => column.key === 'done')
+    const delayColumn = activeProjectBoard.find((column) => column.key === 'delay')
+
+    return [todoColumn, doingColumn, riskColumn, doneColumn, delayColumn].filter((column): column is BoardColumn => Boolean(column))
+  }, [activeProjectBoard, activeProjectList])
+  const completionChartOption = useMemo<EChartsOption>(
+    () => ({
+      animation: false,
+      backgroundColor: 'transparent',
+      title: {
+        text: `${Math.round(resolvedProjectStats.completionRate)}%`,
+        subtext: '任务完成度',
+        left: 'center',
+        top: '36%',
+        textStyle: { color: '#f5f7ff', fontSize: 28, fontWeight: 700 },
+        subtextStyle: { color: '#8690ae', fontSize: 12 },
+      },
+      tooltip: { trigger: 'item' },
+      series: [
+        {
+          type: 'pie',
+          radius: ['68%', '84%'],
+          center: ['50%', '50%'],
+          silent: true,
+          label: { show: false },
+          data: [
+            { value: resolvedProjectStats.completedTasks, name: '已完成', itemStyle: { color: '#20d6a7' } },
+            {
+              value: Math.max(resolvedProjectStats.totalTasks - resolvedProjectStats.completedTasks, 0),
+              name: '未完成',
+              itemStyle: { color: 'rgba(104, 118, 160, 0.22)' },
+            },
+          ],
+        },
+      ],
+    }),
+    [resolvedProjectStats],
+  )
+  const statusChartOption = useMemo<EChartsOption>(
+    () => ({
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { top: 18, right: 18, bottom: 8, left: 56 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: 'rgba(118, 129, 170, 0.12)' } },
+        axisLabel: { color: '#7f89ab' },
+      },
+      yAxis: {
+        type: 'category',
+        data: ['已完成', '风险', '延期'],
+        axisTick: { show: false },
+        axisLine: { show: false },
+        axisLabel: { color: '#dbe3ff' },
+      },
+      series: [
+        {
+          type: 'bar',
+          barWidth: 16,
+          data: [
+            { value: resolvedProjectStats.completedTasks, itemStyle: { color: '#20d6a7', borderRadius: 999 } },
+            { value: resolvedProjectStats.riskTasks, itemStyle: { color: '#f6c54f', borderRadius: 999 } },
+            { value: resolvedProjectStats.delayedTasks, itemStyle: { color: '#ff7b88', borderRadius: 999 } },
+          ],
+          label: {
+            show: true,
+            position: 'right',
+            color: '#eef2ff',
+            fontWeight: 600,
+          },
+        },
+      ],
+    }),
+    [resolvedProjectStats],
+  )
 
   if (loadingProjects && !projectCards.length) {
     return (
@@ -69,62 +229,79 @@ function ProjectsPage() {
         </div>
       </Card>
 
-      <div className="project-card-grid">
-        {projectCards.map((project) => (
-          <button
-            key={project.id}
-            type="button"
-            className={
-              project.id === resolvedActiveProjectId
-                ? 'project-summary-card project-summary-card-active'
-                : 'project-summary-card'
-            }
-            onClick={() => setActiveProjectId(project.id)}
-          >
-            <div className="project-card-top">
-              <div>
-                <div className="project-card-title">{project.name}</div>
-                <div className="project-card-subtitle">
-                  负责人：{project.owner} · 截止：{project.dueAt}
-                </div>
-              </div>
-              <Tag
-                color={
-                  project.status === '进行中'
-                    ? 'processing'
-                    : project.status === '未开始'
-                      ? 'default'
-                      : 'success'
+      <div className="project-card-scroll">
+        <div className="project-card-grid">
+          {projectCards.map((project) => {
+            const accentColor = pickStableColor(project.id, projectAccentColors)
+            const cardAccentStyle = {
+              '--project-card-accent': accentColor,
+              '--project-card-accent-border': hexToRgba(accentColor, 0.5),
+              '--project-card-accent-shadow': hexToRgba(accentColor, 0.22),
+            } as CSSProperties
+
+            return (
+              <button
+                key={project.id}
+                type="button"
+                className={
+                  project.id === resolvedActiveProjectId
+                    ? 'project-summary-card project-summary-card-active'
+                    : 'project-summary-card'
                 }
+                style={cardAccentStyle}
+                onClick={() => setActiveProjectId(project.id)}
               >
-                {project.status}
-              </Tag>
-            </div>
-            <div className="project-progress-label">
-              <span>整体进度</span>
-              <span>{project.progress}%</span>
-            </div>
-            <Progress
-              percent={project.progress}
-              showInfo={false}
-              strokeColor="#6a83ff"
-              trailColor="rgba(255,255,255,0.08)"
-            />
-            <div className="project-card-metrics">
-              <span>{project.taskCount} 项任务</span>
-              <span className="success-text">{project.doneCount} 完成</span>
-              <span className="warning-text">{project.riskCount} 风险</span>
-              <span className="danger-text">{project.delayCount} 延期</span>
-            </div>
-            <div className="avatar-stack">
-              {project.members.map((member) => (
-                <Avatar key={member} size="small" className="avatar-stack-item">
-                  {member}
-                </Avatar>
-              ))}
-            </div>
-          </button>
-        ))}
+              <div className="project-card-top">
+                <div>
+                  <div className="project-card-title">{project.name}</div>
+                  <div className="project-card-subtitle">
+                    负责人：{project.owner} · 截止：{project.dueAt}
+                  </div>
+                </div>
+                <Tag
+                  color={
+                    project.status === '进行中'
+                      ? 'processing'
+                      : project.status === '未开始'
+                        ? 'default'
+                        : 'success'
+                  }
+                >
+                  {project.status}
+                </Tag>
+              </div>
+              <div className="project-progress-label">
+                <span>整体进度</span>
+                <span>{project.progress}%</span>
+              </div>
+              <Progress
+                percent={project.progress}
+                showInfo={false}
+                strokeColor={accentColor}
+                trailColor="rgba(255,255,255,0.08)"
+              />
+              <div className="project-card-metrics">
+                <span>{project.taskCount} 项任务</span>
+                <span className="success-text">{project.doneCount} 完成</span>
+                <span className="warning-text">{project.riskCount} 风险</span>
+                <span className="danger-text">{project.delayCount} 延期</span>
+              </div>
+              <div className="avatar-stack">
+                {project.members.map((member) => (
+                  <Avatar
+                    key={member}
+                    size="small"
+                    className="avatar-stack-item"
+                    style={{ background: pickStableColor(`${project.id}-${member}`, memberAvatarColors) }}
+                  >
+                    {member}
+                  </Avatar>
+                ))}
+              </div>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {!projectCards.length ? (
@@ -151,9 +328,9 @@ function ProjectsPage() {
           }
         >
           {projectView === 'kanban' ? (
-            <div className="kanban-board">
+            <div className="kanban-board project-kanban-board">
               {loadingBoard ? <Spin /> : null}
-              {activeProjectBoard.map((column) => (
+              {activeProjectKanbanColumns.map((column) => (
                 <div key={column.key} className="kanban-column">
                   <div className="kanban-column-header">
                     <Space>
@@ -178,7 +355,7 @@ function ProjectsPage() {
                         </button>
                       ))
                     ) : (
-                      <div className="empty-board-hint">当前列暂无任务</div>
+                      <div className="empty-board-hint">{column.key === 'risk' ? '当前列暂无风险任务' : '当前列暂无任务'}</div>
                     )}
                   </div>
                 </div>
@@ -205,7 +382,6 @@ function ProjectsPage() {
                 >
                   <div className="todo-cell-main">
                     <div className="todo-row-title">{task.title}</div>
-                    <div className="muted-text">{task.project}</div>
                   </div>
                   <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
                   <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
@@ -226,11 +402,13 @@ function ProjectsPage() {
                 <div key={row.label} className="gantt-row">
                   <div className="gantt-label">{row.label}</div>
                   <div className="gantt-track">
+                    <div className="gantt-track-line" />
                     <div
                       className="gantt-bar"
                       style={{ marginLeft: `${row.start}%`, width: `${row.width}%`, background: row.color }}
                     >
-                      {row.note}
+                      <span className="gantt-bar-title">{row.label}</span>
+                      <span className="gantt-bar-note">{row.note}</span>
                     </div>
                   </div>
                 </div>
@@ -240,17 +418,29 @@ function ProjectsPage() {
 
           {projectView === 'stats' ? (
             <div className="project-stats-grid">
-              <Card className="attachment-card" bordered={false}>
-                <div className="stat-card-title">任务完成度</div>
-                <div className="stat-card-value">{Math.round(projectStats?.completionRate ?? activeProject.progress)}%</div>
+              <Card className="attachment-card project-stats-summary" bordered={false}>
+                <div className="project-stats-kpis">
+                  <div className="project-stats-kpi">
+                    <span className="project-stats-kpi-label">任务总数</span>
+                    <span className="project-stats-kpi-value">{resolvedProjectStats.totalTasks}</span>
+                  </div>
+                  <div className="project-stats-kpi">
+                    <span className="project-stats-kpi-label">风险任务</span>
+                    <span className="project-stats-kpi-value warning-text">{resolvedProjectStats.riskTasks}</span>
+                  </div>
+                  <div className="project-stats-kpi">
+                    <span className="project-stats-kpi-label">延期任务</span>
+                    <span className="project-stats-kpi-value danger-text">{resolvedProjectStats.delayedTasks}</span>
+                  </div>
+                </div>
               </Card>
-              <Card className="attachment-card" bordered={false}>
-                <div className="stat-card-title">风险任务</div>
-                <div className="stat-card-value">{projectStats?.delayedTasks ?? activeProject.riskCount}</div>
+              <Card className="attachment-card project-stats-panel" bordered={false}>
+                <div className="project-stats-panel-title">完成度分析</div>
+                <ProjectStatsChart option={completionChartOption} className="project-stats-chart project-stats-chart-donut" />
               </Card>
-              <Card className="attachment-card" bordered={false}>
-                <div className="stat-card-title">延期任务</div>
-                <div className="stat-card-value">{projectStats?.overdueTasks ?? activeProject.delayCount}</div>
+              <Card className="attachment-card project-stats-panel" bordered={false}>
+                <div className="project-stats-panel-title">任务状态分布</div>
+                <ProjectStatsChart option={statusChartOption} className="project-stats-chart project-stats-chart-bars" />
               </Card>
             </div>
           ) : null}

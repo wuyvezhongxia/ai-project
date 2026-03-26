@@ -60,6 +60,29 @@ const normalizeCollaboratorUserIds = (userIds: string[], excludedUserIds: Array<
   return [...new Set(userIds)].filter((userId) => !excluded.has(userId));
 };
 
+const isDelayedTask = (task: Pick<Task, "status" | "dueTime">) => {
+  if (task.status === "3") return true;
+  if (task.status === "2" || !task.dueTime) return false;
+
+  const due = new Date(task.dueTime);
+  return !Number.isNaN(due.getTime()) && due.getTime() < Date.now();
+};
+
+const isRiskTask = (task: Pick<Task, "status" | "dueTime" | "riskLevel">) => {
+  if (task.status === "2" || isDelayedTask(task)) return false;
+
+  const dueSoon =
+    task.dueTime != null &&
+    (() => {
+      const due = new Date(task.dueTime);
+      if (Number.isNaN(due.getTime())) return false;
+      const diff = due.getTime() - Date.now();
+      return diff >= 0 && diff <= 24 * 60 * 60 * 1000;
+    })();
+
+  return ["2", "3"].includes(task.riskLevel ?? "0") || dueSoon;
+};
+
 const buildDueCategory = (task: Task) => {
   if (task.status === "2") return "completed";
   if (!task.dueTime) return "week";
@@ -463,12 +486,32 @@ export const taskService = {
       }
     }
 
+    const now = new Date();
+    const statusFilter =
+      query.status === "3"
+        ? {
+            OR: [{ status: "3" }, { status: { not: "2" }, dueTime: { lt: now } }],
+          }
+        : query.status === "2"
+          ? { status: "2" }
+          : query.status === "1"
+            ? {
+                status: "1",
+                OR: [{ dueTime: null }, { dueTime: { gte: now } }],
+              }
+            : query.status === "0"
+              ? {
+                  status: "0",
+                  OR: [{ dueTime: null }, { dueTime: { gte: now } }],
+                }
+              : {}
+
     const rows = await prisma.task.findMany({
       where: {
         tenantId: ctx.tenantId,
         delFlag: "0",
         ...(query.projectId ? { projectId: toDbId(query.projectId) } : {}),
-        ...(query.status ? { status: query.status } : {}),
+        ...statusFilter,
         ...(query.priority ? { priority: query.priority } : {}),
         ...(query.assigneeUserId ? { assigneeUserId: toDbId(query.assigneeUserId) } : {}),
         ...(query.creatorUserId ? { creatorUserId: toDbId(query.creatorUserId) } : {}),
@@ -510,7 +553,7 @@ export const taskService = {
     if (query.view === "kanban") {
       return views.reduce<Record<string, typeof views>>(
         (acc, item) => {
-          const key = statusKanbanMap[item.status] ?? "notStarted";
+          const key = isDelayedTask(item) ? "delayed" : statusKanbanMap[item.status] ?? "notStarted";
           acc[key].push(item);
           return acc;
         },
@@ -793,13 +836,16 @@ export const taskService = {
   },
 
   async riskList(ctx: AuthContext) {
-    const [riskRows, overdueRows] = await Promise.all([
-      this.list(ctx, { riskLevel: "2" }),
-      this.list(ctx, { dueRange: "overdue" }),
-    ]);
+    const rows = await prisma.task.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        delFlag: "0",
+      },
+      orderBy: [{ dueTime: "asc" }, { priority: "desc" }, { createTime: "desc" }],
+    });
 
-    const merged = [...(Array.isArray(riskRows) ? riskRows : []), ...(Array.isArray(overdueRows) ? overdueRows : [])];
-    return Array.from(new Map(merged.map((item) => [item.id, item])).values()).slice(0, 20);
+    const views = await buildTaskListViews(ctx, rows.map((row) => toTask(row)));
+    return views.filter((item) => isRiskTask(item) || isDelayedTask(item)).slice(0, 20);
   },
 
   async todo(ctx: AuthContext, query: TaskListQuery) {

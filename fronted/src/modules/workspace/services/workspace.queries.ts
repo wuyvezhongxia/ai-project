@@ -38,10 +38,11 @@ export const useAuthContextQuery = () =>
     queryFn: workspaceApi.getAuthContext,
   })
 
-export const useDashboardQuery = () =>
+export const useDashboardQuery = (enabled = true) =>
   useQuery({
     queryKey: workspaceQueryKeys.dashboard,
     queryFn: workspaceApi.getDashboard,
+    enabled,
   })
 
 export const useMustDoTodayQuery = () =>
@@ -65,7 +66,7 @@ export const useWorkloadQuery = (range: 'week' | 'month' = 'week') =>
     select: (items) => mapWorkload(items),
   })
 
-export const useProjectsQuery = (statusTab: string) =>
+export const useProjectsQuery = (statusTab: string, enabled = true) =>
   useQuery<ApiProject[], Error, ProjectCard[]>({
     queryKey: workspaceQueryKeys.projects(statusTab),
     queryFn: () => {
@@ -74,6 +75,7 @@ export const useProjectsQuery = (statusTab: string) =>
       if (statusTab === '已归档') params.set('status', '2')
       return workspaceApi.getProjects(params)
     },
+    enabled,
     select: (items) => items.map(mapProjectToCard),
   })
 

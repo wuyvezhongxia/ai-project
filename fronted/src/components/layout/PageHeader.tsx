@@ -11,12 +11,12 @@ type PageHeaderProps = {
 function PageHeader({ title, subtitle, actionLabel, onActionClick }: PageHeaderProps) {
   return (
     <header className="dashboard-header">
-      <div>
+      <div className="dashboard-header-main">
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
 
-      <Space size={12} wrap>
+      <Space size={12} wrap className="dashboard-header-actions">
         <Input
           className="dashboard-search"
           placeholder="搜索任务、项目、文档..."
