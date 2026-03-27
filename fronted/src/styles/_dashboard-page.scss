@@ -6,11 +6,11 @@
 }
 
 .stat-card {
-  min-height: 142px;
+  min-height: 126px;
 }
 
 .stat-card > .ant-card-body {
-  padding: 18px 18px 16px !important;
+  padding: 12px 18px 12px !important;
 }
 
 .stat-card-head {
@@ -18,7 +18,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .stat-card-badge {
@@ -26,7 +26,7 @@
   align-items: center;
   gap: 8px;
   max-width: calc(100% - 34px);
-  padding: 6px 10px;
+  padding: 4px 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
@@ -60,10 +60,10 @@
 }
 
 .stat-card-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 12px;
   color: #eef2ff;
   background: rgba(255, 255, 255, 0.08);
 }
@@ -89,8 +89,8 @@
 }
 
 .stat-card-ornament {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 50%;
   opacity: 0.7;
@@ -99,15 +99,15 @@
 .stat-card-title {
   color: #8991b3;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stat-card-value {
-  margin-bottom: 14px;
-  font-size: 34px;
+  margin-bottom: 10px;
+  font-size: 28px;
   line-height: 1;
   font-weight: 700;
   color: #f7f8ff;
@@ -121,20 +121,25 @@
   padding-inline-end: 0 !important;
 }
 
+.stat-card .ant-progress-rail {
+  height: 3px !important;
+  border-radius: 999px;
+}
+
 .stat-card .ant-progress-inner {
-  height: 4px !important;
+  height: 3px !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
 .stat-card .ant-progress-bg {
-  height: 4px !important;
+  height: 3px !important;
   border-radius: 999px;
 }
 
 .stat-card-footer {
-  margin-top: 10px;
+  margin-top: 8px;
   color: #737da2;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .stat-card-footer-trend {
