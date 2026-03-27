@@ -1,4 +1,6 @@
 import {
+  CaretDownFilled,
+  CaretUpFilled,
   CheckCircleFilled,
   CheckSquareOutlined,
   ClockCircleOutlined,
@@ -25,6 +27,20 @@ const getRiskTagColor = (risk: string) => {
   return 'gold'
 }
 
+const getTrendMeta = (text: string) => {
+  const match = text.match(/^(.*?)([+-]\d+%)$/)
+  if (!match) return null
+
+  const [, label, delta] = match
+  const direction = delta.startsWith('+') ? 'up' : 'down'
+
+  return {
+    label: label.trim(),
+    delta,
+    direction,
+  } as const
+}
+
 function DashboardPage() {
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const { data: dashboard } = useDashboardQuery()
@@ -40,10 +56,13 @@ function DashboardPage() {
   const todayCompleted =
     todayTasks.length > 0 ? todayTasks.filter((task) => task.status === '2').length : mustDoTasks.filter((task) => task.completed).length
   const todayCompletionRate = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0
+  const weeklyTotal = dashboard?.summary?.total ?? 0
+  const weeklyCompleted = Math.max(weeklyTotal - (dashboard?.summary?.risk ?? 0), 0)
+  const weeklyCompletionRate = weeklyTotal > 0 ? Math.round((weeklyCompleted / weeklyTotal) * 100) : Number.parseInt(statCards[1].value, 10)
 
   const resolvedStatCards = [
     { ...statCards[0], value: String(todayTotal), suffix: `已完成 ${todayCompleted} / ${todayTotal} · ${todayCompletionRate}%` },
-    { ...statCards[1], value: `${dashboard?.summary?.total ? Math.round(((dashboard.summary.total - (dashboard.summary.risk ?? 0)) / dashboard.summary.total) * 100) : 0}%`, suffix: `总任务 ${dashboard?.summary?.total ?? 0} 项` },
+    { ...statCards[1], title: '本周完成率', value: `${weeklyCompletionRate}%`, suffix: `已完成 ${weeklyCompleted} / ${weeklyTotal} 项` },
     { ...statCards[2], value: String(delayedCount), suffix: delayedCount > 0 ? `已超期 ${delayedCount} 项` : '当前无延期任务' },
     { ...statCards[3], value: `${memberLoads[0]?.value ?? 0}%`, suffix: memberLoads[0] ? `需留意，${memberLoads[0].name}排期较满` : statCards[3].suffix },
   ]
@@ -53,6 +72,11 @@ function DashboardPage() {
       <section className="stat-grid">
         {resolvedStatCards.map((card, index) => (
           <Card key={card.title} className="glass-card stat-card" bordered={false}>
+            {(() => {
+              const trendMeta = getTrendMeta(card.suffix)
+
+              return (
+                <>
             <div className="stat-card-head">
               <div className={`stat-card-badge stat-card-badge-${index + 1}`}>
                 <span className={`stat-card-icon stat-card-icon-${index + 1}`}>{statCardIcons[index]}</span>
@@ -69,7 +93,24 @@ function DashboardPage() {
               strokeColor={card.accent}
               trailColor="rgba(255,255,255,0.06)"
             />
-            <div className="stat-card-footer">{card.suffix}</div>
+            {trendMeta ? (
+              <div className="stat-card-footer stat-card-footer-trend">
+                <span>{trendMeta.label}</span>
+                <span
+                  className={
+                    trendMeta.direction === 'up' ? 'stat-card-trend stat-card-trend-up' : 'stat-card-trend stat-card-trend-down'
+                  }
+                >
+                  {trendMeta.direction === 'up' ? <CaretUpFilled /> : <CaretDownFilled />}
+                  {trendMeta.delta}
+                </span>
+              </div>
+            ) : (
+              <div className="stat-card-footer">{card.suffix}</div>
+            )}
+                </>
+              )
+            })()}
           </Card>
         ))}
       </section>
@@ -98,11 +139,15 @@ function DashboardPage() {
                 const checked = task.completed
 
                 return (
-                  <List.Item className={checked ? 'task-list-item task-list-item-done' : 'task-list-item'}>
+                  <List.Item
+                    className={checked ? 'task-list-item task-list-item-done task-list-item-clickable' : 'task-list-item task-list-item-clickable'}
+                    onClick={() => openTaskDetail(task.id)}
+                  >
                     <div className="task-row">
                       <div className="task-main">
                         <Checkbox
                           checked={checked}
+                          onClick={(event) => event.stopPropagation()}
                           onChange={() =>
                             updateStatusMutation.mutate({
                               taskId: task.id,
@@ -147,7 +192,7 @@ function DashboardPage() {
               loading={loadingRisk}
               locale={{ emptyText: '当前暂无延期或风险任务' }}
               renderItem={(task) => (
-                <List.Item className="risk-list-item">
+                <List.Item className="risk-list-item risk-list-item-clickable" onClick={() => openTaskDetail(task.id)}>
                   <div className="risk-dot" />
                   <div className="risk-content">
                     <div className="risk-title">{task.title}</div>

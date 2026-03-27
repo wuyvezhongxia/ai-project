@@ -278,8 +278,10 @@ export const useUpdateTaskStatusMutation = () => {
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.taskDetail(variables.taskId) })
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.dashboard })
       void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.mustDoToday })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.riskTasks })
       void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
       void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
       void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
       void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
     },

@@ -106,8 +106,8 @@
 }
 
 .stat-card-value {
-  margin-bottom: 16px;
-  font-size: 38px;
+  margin-bottom: 14px;
+  font-size: 34px;
   line-height: 1;
   font-weight: 700;
   color: #f7f8ff;
@@ -117,14 +117,53 @@
   line-height: 1;
 }
 
+.stat-card .ant-progress-outer {
+  padding-inline-end: 0 !important;
+}
+
 .stat-card .ant-progress-inner {
+  height: 4px !important;
   background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.stat-card .ant-progress-bg {
+  height: 4px !important;
+  border-radius: 999px;
 }
 
 .stat-card-footer {
   margin-top: 10px;
   color: #737da2;
   font-size: 12px;
+}
+
+.stat-card-footer-trend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.stat-card-trend-up {
+  color: #21d8aa;
+  background: rgba(33, 216, 170, 0.12);
+  border-color: rgba(33, 216, 170, 0.22);
+}
+
+.stat-card-trend-down {
+  color: #ff7b88;
+  background: rgba(255, 123, 136, 0.12);
+  border-color: rgba(255, 123, 136, 0.22);
 }
 
 .dashboard-grid {
@@ -185,6 +224,16 @@
 .risk-list-item {
   min-height: 72px;
   border-bottom: 1px solid rgba(117, 135, 195, 0.14);
+}
+
+.task-list-item-clickable,
+.risk-list-item-clickable {
+  cursor: pointer;
+}
+
+.task-list-item-clickable:hover,
+.risk-list-item-clickable:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .task-list-item:last-child,
