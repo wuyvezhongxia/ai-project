@@ -93,7 +93,8 @@ export type ProjectCard = {
   name: string
   owner: string
   ownerId?: string
-  ownerAvatarLabel: string
+  members: Array<{ userId?: string; nickName: string }>
+  accentColor?: string
   dueAt: string
   progress: number
   status: '进行中' | '未开始' | '已归档'
@@ -101,7 +102,6 @@ export type ProjectCard = {
   doneCount: number
   riskCount: number
   delayCount: number
-  extraMemberCount: number
 }
 
 export type BoardTask = WorkTask & {

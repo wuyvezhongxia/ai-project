@@ -88,6 +88,17 @@ const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>
   ]);
 
   const tagIds = tagRels.map((r) => r.tagId);
+  const memberUserIds = [...new Set(members.map((item) => item.userId))];
+  const memberUsers =
+    memberUserIds.length > 0
+      ? await prisma.user.findMany({
+          where: { userId: { in: memberUserIds }, status: "0", delFlag: "0" },
+        })
+      : [];
+  const memberUserMap = new Map(memberUsers.map((item) => [item.userId, toUserProfile(item)]));
+  const memberProfiles = members
+    .map((item) => memberUserMap.get(item.userId))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
   const tagRows =
     tagIds.length > 0
       ? await prisma.tag.findMany({
@@ -98,6 +109,7 @@ const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>
   return {
     ...project,
     owner: owner ? toUserProfile(owner) : undefined,
+    members: memberProfiles,
     membersCount: members.length,
     taskCount: tasks.length,
     completedTaskCount: tasks.filter((item) => item.status === "2").length,

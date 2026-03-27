@@ -14,7 +14,6 @@ import type {
   WorkloadMember,
 } from '../types'
 import type { ApiProject, ApiTask } from '../services/workspace.api'
-import { getAvatarLabel } from '../utils/avatar'
 
 const projectStatusMap: Record<string, ProjectCard['status']> = {
   '0': '进行中',
@@ -193,7 +192,16 @@ export const mapProjectToCard = (project: ApiProject): ProjectCard => ({
   name: project.projectName,
   owner: project.owner?.nickName ?? '未分配',
   ownerId: project.ownerUserId,
-  ownerAvatarLabel: getAvatarLabel(project.owner?.nickName ?? '未分配'),
+  accentColor: project.accentColor,
+  members:
+    project.members?.length
+      ? project.members.map((member) => ({
+          userId: member.userId,
+          nickName: member.nickName,
+        }))
+      : project.owner
+        ? [{ userId: project.owner.userId, nickName: project.owner.nickName }]
+        : [],
   dueAt: project.endTime ? dayjs(project.endTime).format('YYYY.MM.DD') : '未设置',
   progress:
     (project.taskCount ?? 0) > 0
@@ -204,7 +212,6 @@ export const mapProjectToCard = (project: ApiProject): ProjectCard => ({
   doneCount: project.completedTaskCount ?? 0,
   riskCount: project.riskTaskCount ?? 0,
   delayCount: project.delayedTaskCount ?? 0,
-  extraMemberCount: Math.max((project.membersCount ?? 1) - 1, 0),
 })
 
 export const mapProjectTaskKanban = (input: Record<string, ApiTask[]>) => [

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Avatar, Button, Card, Empty, Progress, Segmented, Space, Spin, Tag } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Avatar, Button, Card, Dropdown, Empty, Progress, Segmented, Space, Spin, Tag } from 'antd'
+import type { MenuProps } from 'antd'
+import { DownOutlined, PlusOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
-import { getAvatarLabel, getAvatarSeed, getAvatarStyle, getNeutralAvatarStyle } from '../../workspace/utils/avatar'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
 import {
   useProjectGanttQuery,
   useProjectsQuery,
@@ -62,17 +63,23 @@ function ProjectsPage() {
   const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
+  const [projectFilter, setProjectFilter] = useState('all')
   const [projectView, setProjectView] = useState<ProjectView>('kanban')
   const { data: projectCards = [], isLoading: loadingProjects } = useProjectsQuery(projectStatusTab)
   const [activeProjectId, setActiveProjectId] = useState('')
-  const resolvedActiveProjectId = projectCards.some((project) => project.id === activeProjectId)
+  const visibleProjectCards = useMemo(() => {
+    if (projectFilter === 'risk') return projectCards.filter((project) => project.riskCount > 0)
+    if (projectFilter === 'delay') return projectCards.filter((project) => project.delayCount > 0)
+    return projectCards
+  }, [projectCards, projectFilter])
+  const resolvedActiveProjectId = visibleProjectCards.some((project) => project.id === activeProjectId)
     ? activeProjectId
-    : (projectCards[0]?.id ?? '')
+    : (visibleProjectCards[0]?.id ?? '')
 
   const activeProject = useMemo(() => {
-    if (!projectCards.length) return null
-    return projectCards.find((project) => project.id === resolvedActiveProjectId) ?? projectCards[0]
-  }, [projectCards, resolvedActiveProjectId])
+    if (!visibleProjectCards.length) return null
+    return visibleProjectCards.find((project) => project.id === resolvedActiveProjectId) ?? visibleProjectCards[0]
+  }, [visibleProjectCards, resolvedActiveProjectId])
 
   const { data: activeProjectBoardData = [], isLoading: loadingBoard } = useProjectTasksQuery(activeProject?.id ?? '', 'kanban')
   const { data: activeProjectListData = [], isLoading: loadingList } = useProjectTasksQuery(activeProject?.id ?? '', 'list')
@@ -186,6 +193,17 @@ function ProjectsPage() {
     }),
     [resolvedProjectStats],
   )
+  const projectFilterLabel = projectFilter === 'risk' ? '有风险' : projectFilter === 'delay' ? '有延期' : '全部项目'
+  const filterMenu: MenuProps = {
+    selectable: true,
+    selectedKeys: [projectFilter],
+    items: [
+      { key: 'all', label: '全部项目' },
+      { key: 'risk', label: '有风险' },
+      { key: 'delay', label: '有延期' },
+    ],
+    onClick: ({ key }) => setProjectFilter(key),
+  }
 
   if (loadingProjects && !projectCards.length) {
     return (
@@ -214,7 +232,11 @@ function ProjectsPage() {
             ))}
           </Space>
           <Space wrap>
-            <Button className="ghost-button">日筛选</Button>
+            <Dropdown menu={filterMenu} trigger={['hover', 'click']}>
+              <Button className="ghost-button" icon={<DownOutlined />}>
+                {projectFilter === 'all' ? '筛选' : `筛选 · ${projectFilterLabel}`}
+              </Button>
+            </Dropdown>
             <Button type="primary" icon={<PlusOutlined />} onClick={openProjectModal}>
               新建项目
             </Button>
@@ -224,13 +246,15 @@ function ProjectsPage() {
 
       <div className="project-card-scroll">
         <div className="project-card-grid">
-          {projectCards.map((project) => {
-            const accentColor = pickStableColor(project.id, projectAccentColors)
+          {visibleProjectCards.map((project) => {
+            const accentColor = project.accentColor ?? pickStableColor(project.id, projectAccentColors)
             const cardAccentStyle = {
               '--project-card-accent': accentColor,
               '--project-card-accent-border': hexToRgba(accentColor, 0.5),
               '--project-card-accent-shadow': hexToRgba(accentColor, 0.22),
             } as CSSProperties
+            const visibleMembers = project.members.slice(0, 3)
+            const remainingMemberCount = Math.max(project.members.length - visibleMembers.length, 0)
 
             return (
               <button
@@ -245,31 +269,33 @@ function ProjectsPage() {
                 onClick={() => setActiveProjectId(project.id)}
               >
               <div className="project-card-top">
-                <div>
+                <div className="project-card-heading">
                   <div className="project-card-title">{project.name}</div>
-                  <div className="project-card-subtitle">
-                    负责人：{project.owner} · 截止：{project.dueAt}
-                  </div>
+                  <Tag
+                    color={
+                      project.status === '进行中'
+                        ? 'processing'
+                        : project.status === '未开始'
+                          ? 'default'
+                          : 'success'
+                    }
+                  >
+                    {project.status}
+                  </Tag>
                 </div>
-                <Tag
-                  color={
-                    project.status === '进行中'
-                      ? 'processing'
-                      : project.status === '未开始'
-                        ? 'default'
-                        : 'success'
-                  }
-                >
-                  {project.status}
-                </Tag>
+                <div className="project-card-subtitle">
+                  负责人：{project.owner} · 截止：{project.dueAt}
+                </div>
               </div>
               <div className="project-progress-label">
                 <span>整体进度</span>
                 <span>{project.progress}%</span>
               </div>
               <Progress
+                className="project-card-progress"
                 percent={project.progress}
                 showInfo={false}
+                strokeWidth={4}
                 strokeColor={accentColor}
                 trailColor="rgba(255,255,255,0.08)"
               />
@@ -280,16 +306,19 @@ function ProjectsPage() {
                 <span className="danger-text">{project.delayCount} 延期</span>
               </div>
               <div className="avatar-stack">
-                <Avatar
-                  size="small"
-                  className="avatar-stack-item"
-                  style={getAvatarStyle(getAvatarSeed(project.ownerId, project.owner))}
-                >
-                  {project.ownerAvatarLabel}
-                </Avatar>
-                {project.extraMemberCount > 0 ? (
-                  <Avatar size="small" className="avatar-stack-item avatar-stack-count" style={getNeutralAvatarStyle()}>
-                    +{project.extraMemberCount}
+                {visibleMembers.map((member) => (
+                  <Avatar
+                    key={`${project.id}-${member.userId ?? member.nickName}`}
+                    size="small"
+                    className="avatar-stack-item"
+                    style={getAvatarStyle(getAvatarSeed(member.userId, member.nickName))}
+                  >
+                    {getAvatarLabel(member.nickName)}
+                  </Avatar>
+                ))}
+                {remainingMemberCount > 0 ? (
+                  <Avatar size="small" className="avatar-stack-item avatar-stack-count">
+                    +{remainingMemberCount}
                   </Avatar>
                 ) : null}
               </div>
@@ -302,6 +331,10 @@ function ProjectsPage() {
       {!projectCards.length ? (
         <Card className="glass-card">
           <Empty description="当前没有可展示的项目" />
+        </Card>
+      ) : !visibleProjectCards.length ? (
+        <Card className="glass-card">
+          <Empty description="当前筛选下没有可展示的项目" />
         </Card>
       ) : null}
 

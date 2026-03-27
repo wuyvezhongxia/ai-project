@@ -18,7 +18,7 @@
 .project-card-grid {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(260px, calc((100% - 48px) / 4));
+  grid-auto-columns: calc((100% - 32px) / 3);
   gap: 16px;
   min-width: max-content;
 }
@@ -27,6 +27,10 @@
   --project-card-accent: #6a83ff;
   --project-card-accent-border: rgba(106, 131, 255, 0.5);
   --project-card-accent-shadow: rgba(106, 131, 255, 0.22);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 14px;
+  row-gap: 10px;
   padding: 18px;
   border: 1px solid var(--pm-border-card);
   border-radius: 20px;
@@ -35,8 +39,8 @@
   background: linear-gradient(180deg, rgba(22, 27, 41, 0.95), rgba(15, 18, 29, 0.95));
   box-shadow: 0 18px 48px rgba(3, 6, 18, 0.28);
   cursor: pointer;
-  width: auto;
-  min-width: 260px;
+  width: 100%;
+  min-width: 0;
   transition:
     transform 0.2s ease,
     border-color 0.2s ease,
@@ -52,20 +56,27 @@
 
 .project-card-top {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.project-card-heading {
+  display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
 }
 
 .project-card-title {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: #f8f9ff;
+  line-height: 1.2;
+  min-width: 0;
 }
 
 .project-card-subtitle {
-  margin-top: 6px;
   color: #7e87a7;
   font-size: 13px;
 }
@@ -73,13 +84,30 @@
 .project-progress-label {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 10px;
+  grid-column: 1 / -1;
   color: #aab2cf;
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.project-card-progress {
+  grid-column: 1 / -1;
+  line-height: 1;
+}
+
+.project-card-progress .ant-progress-outer {
+  display: block;
+}
+
+.project-card-progress .ant-progress-inner {
+  height: 4px !important;
+}
+
+.project-card-progress .ant-progress-bg {
+  height: 4px !important;
 }
 
 .project-summary-card .ant-progress .ant-progress-bg {
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--project-card-accent) 32%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--project-card-accent) 18%, transparent);
 }
 
 .project-summary-card .ant-tag {
@@ -96,26 +124,39 @@
 
 .project-card-metrics {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 12px;
+  align-items: center;
+  gap: 14px;
+  grid-column: 1;
   color: #8690ae;
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .avatar-stack {
   display: flex;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 0;
+  grid-column: 2;
+  justify-self: end;
+  align-self: center;
+  margin: 0;
+  isolation: isolate;
 }
 
 .avatar-stack-item {
   color: #fff !important;
+  margin-left: -8px;
+  border: 2px solid rgba(15, 18, 29, 0.96);
   box-shadow: 0 8px 18px rgba(9, 14, 32, 0.28);
+}
+
+.avatar-stack-item:first-child {
+  margin-left: 0;
 }
 
 .avatar-stack-count {
   font-size: 11px;
+  font-weight: 700;
 }
 
 .kanban-board {

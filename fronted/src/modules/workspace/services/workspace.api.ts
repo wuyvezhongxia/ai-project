@@ -77,6 +77,7 @@ export type ApiProject = {
   id: string
   projectName: string
   owner?: ApiTaskUser | null
+  members?: ApiTaskUser[]
   ownerUserId: string
   endTime?: string
   progress: number
@@ -86,6 +87,7 @@ export type ApiProject = {
   riskTaskCount?: number
   delayedTaskCount?: number
   membersCount?: number
+  accentColor?: string
 }
 
 export type CreateProjectPayload = {
