@@ -1,4 +1,12 @@
-import { Checkbox, Avatar, Button, Card, Flex, Input, List, Progress, Space, Tag } from 'antd'
+import {
+  CheckCircleFilled,
+  CheckSquareOutlined,
+  ClockCircleOutlined,
+  PushpinOutlined,
+  RobotOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
+import { Avatar, Button, Card, Checkbox, Flex, Input, List, Progress, Space, Tag } from 'antd'
 import { aiMessages, statCards } from '../../workspace/data/mock'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
@@ -11,6 +19,12 @@ import {
   useWorkloadQuery,
 } from '../../workspace/services/workspace.queries'
 
+const getRiskTagColor = (risk: string) => {
+  if (risk.startsWith('已延期') || risk === '严重风险') return 'error'
+  if (risk === '风险预警') return 'warning'
+  return 'gold'
+}
+
 function DashboardPage() {
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const { data: dashboard } = useDashboardQuery()
@@ -18,21 +32,37 @@ function DashboardPage() {
   const { data: riskTasks = [], isLoading: loadingRisk } = useRiskTasksQuery()
   const { data: memberLoads = [] } = useWorkloadQuery('week')
   const updateStatusMutation = useUpdateTaskStatusMutation()
+  const statCardIcons = [<PushpinOutlined />, <CheckSquareOutlined />, <ClockCircleOutlined />, <ThunderboltOutlined />]
+  const delayedTasks = riskTasks.filter((task) => task.risk.startsWith('已延期'))
+  const delayedCount = delayedTasks.length
+  const todayTasks = dashboard?.today ?? []
+  const todayTotal = dashboard?.summary?.today ?? todayTasks.length ?? mustDoTasks.length
+  const todayCompleted =
+    todayTasks.length > 0 ? todayTasks.filter((task) => task.status === '2').length : mustDoTasks.filter((task) => task.completed).length
+  const todayCompletionRate = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0
 
   const resolvedStatCards = [
-    { ...statCards[0], value: String(dashboard?.summary?.today ?? 0), suffix: `今日任务 ${dashboard?.summary?.today ?? 0} 项` },
+    { ...statCards[0], value: String(todayTotal), suffix: `已完成 ${todayCompleted} / ${todayTotal} · ${todayCompletionRate}%` },
     { ...statCards[1], value: `${dashboard?.summary?.total ? Math.round(((dashboard.summary.total - (dashboard.summary.risk ?? 0)) / dashboard.summary.total) * 100) : 0}%`, suffix: `总任务 ${dashboard?.summary?.total ?? 0} 项` },
-    { ...statCards[2], value: String(dashboard?.summary?.risk ?? 0), suffix: '需重点跟进处理' },
+    { ...statCards[2], value: String(delayedCount), suffix: delayedCount > 0 ? `已超期 ${delayedCount} 项` : '当前无延期任务' },
     { ...statCards[3], value: `${memberLoads[0]?.value ?? 0}%`, suffix: memberLoads[0] ? `需留意，${memberLoads[0].name}排期较满` : statCards[3].suffix },
   ]
 
   return (
     <>
       <section className="stat-grid">
-        {resolvedStatCards.map((card) => (
+        {resolvedStatCards.map((card, index) => (
           <Card key={card.title} className="glass-card stat-card" bordered={false}>
-            <div className="stat-card-title">{card.title}</div>
-            <div className="stat-card-value">{card.value}</div>
+            <div className="stat-card-head">
+              <div className={`stat-card-badge stat-card-badge-${index + 1}`}>
+                <span className={`stat-card-icon stat-card-icon-${index + 1}`}>{statCardIcons[index]}</span>
+                <span className="stat-card-title">{card.title}</span>
+              </div>
+              <span className="stat-card-ornament" />
+            </div>
+            <div className="stat-card-value" style={{ color: card.accent }}>
+              {card.value}
+            </div>
             <Progress
               percent={card.value.includes('%') ? Number.parseInt(card.value, 10) : Math.min(Number(card.value) * 10, 100)}
               showInfo={false}
@@ -51,40 +81,49 @@ function DashboardPage() {
             title="今日必须完成"
             extra={
               <Space>
-                <Tag color="processing">AI 推荐</Tag>
-                <Button type="link">查看全部</Button>
+                <Tag className="section-chip" color="processing">
+                  AI 推荐
+                </Tag>
+                <Button type="link" className="section-link-button">
+                  查看全部
+                </Button>
               </Space>
             }
           >
             <List
+              className="task-panel-list"
               dataSource={mustDoTasks}
               loading={loadingMustDo}
               renderItem={(task) => {
                 const checked = task.completed
 
                 return (
-                  <List.Item className="task-list-item">
+                  <List.Item className={checked ? 'task-list-item task-list-item-done' : 'task-list-item'}>
                     <div className="task-row">
-                      <Checkbox
-                        checked={checked}
-                        onChange={() =>
-                          updateStatusMutation.mutate({
-                            taskId: task.id,
-                            status: checked ? '1' : '2',
-                          })
-                        }
-                      />
-                      <button className="task-title-button" type="button" onClick={() => openTaskDetail(task.id)}>
-                        <div className={checked ? 'task-title task-title-done' : 'task-title'}>{task.title}</div>
-                        <div className="task-meta">
-                          <span>{task.project}</span>
-                          <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
-                          <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
-                        </div>
-                      </button>
+                      <div className="task-main">
+                        <Checkbox
+                          checked={checked}
+                          onChange={() =>
+                            updateStatusMutation.mutate({
+                              taskId: task.id,
+                              status: checked ? '1' : '2',
+                            })
+                          }
+                        />
+                        <button className="task-title-button" type="button" onClick={() => openTaskDetail(task.id)}>
+                          <div className={checked ? 'task-title task-title-done' : 'task-title'}>{task.title}</div>
+                          <div className="task-meta">
+                            <span>{task.project}</span>
+                            <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
+                            <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
+                          </div>
+                        </button>
+                      </div>
                       <div className="task-side">
                         <Avatar style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>{getAvatarLabel(task.owner)}</Avatar>
-                        <span>{task.dueText}</span>
+                        <span className={checked ? 'task-deadline task-deadline-done' : 'task-deadline'}>
+                          {checked ? '已完成' : task.dueText}
+                        </span>
                       </div>
                     </div>
                   </List.Item>
@@ -93,10 +132,20 @@ function DashboardPage() {
             />
           </Card>
 
-          <Card className="glass-card" title="延期风险任务" extra={<Tag color="error">AI 提醒</Tag>}>
+          <Card
+            className="glass-card"
+            title="延期风险任务"
+            extra={
+              <Tag className="section-chip" color="error">
+                AI 提醒
+              </Tag>
+            }
+          >
             <List
+              className="risk-panel-list"
               dataSource={riskTasks}
               loading={loadingRisk}
+              locale={{ emptyText: '当前暂无延期或风险任务' }}
               renderItem={(task) => (
                 <List.Item className="risk-list-item">
                   <div className="risk-dot" />
@@ -105,7 +154,7 @@ function DashboardPage() {
                     <div className="task-meta">
                       <span>{task.project}</span>
                       <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
-                      <Tag color="error">{task.risk}</Tag>
+                        <Tag color={getRiskTagColor(task.risk)}>{task.risk}</Tag>
                     </div>
                   </div>
                   <span className="risk-date">{task.dueText}</span>
@@ -118,45 +167,68 @@ function DashboardPage() {
         <div className="right-column">
           <Card className="glass-card" title="智能工作助手" extra={<span className="muted-text">GPT-4o · 在线</span>}>
             <div className="assistant-panel">
-              {aiMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={
-                    message.role === 'assistant'
-                      ? 'assistant-bubble'
-                      : 'assistant-bubble assistant-bubble-user'
-                  }
-                >
-                  {message.content}
-                </div>
-              ))}
-              <Input.Search placeholder="输入指令，如：生成本周工作总结..." enterButton="发送" />
+              <div className="assistant-thread">
+                {aiMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={message.role === 'assistant' ? 'assistant-row' : 'assistant-row assistant-row-user'}
+                  >
+                    <span className="assistant-row-icon">
+                      {message.role === 'assistant' ? <RobotOutlined /> : <CheckCircleFilled />}
+                    </span>
+                    <div
+                      className={
+                        message.role === 'assistant'
+                          ? 'assistant-bubble'
+                          : 'assistant-bubble assistant-bubble-user'
+                      }
+                    >
+                      {message.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Input.Search className="assistant-search" placeholder="输入指令，如：生成本周工作总结..." enterButton="发送" />
               <Flex wrap="wrap" gap={8}>
-                <Tag color="blue">生成周报</Tag>
-                <Tag color="purple">重新拆解</Tag>
-                <Tag color="cyan">延期分析</Tag>
-                <Tag color="red">风险提醒</Tag>
+                <Tag className="assistant-shortcut assistant-shortcut-blue">生成周报</Tag>
+                <Tag className="assistant-shortcut assistant-shortcut-purple">智能拆解</Tag>
+                <Tag className="assistant-shortcut assistant-shortcut-cyan">延期分析</Tag>
+                <Tag className="assistant-shortcut assistant-shortcut-red">风险追踪</Tag>
               </Flex>
             </div>
           </Card>
 
-          <Card className="glass-card" title="团队负载速览" extra={<Button type="link">详情</Button>}>
+          <Card className="glass-card" title="团队负载速览" extra={<Button type="link" className="section-link-button">详情</Button>}>
             <div className="workload-list">
-              {memberLoads.map((member) => (
-                <div key={member.name} className="workload-row">
-                  <Space>
-                    <Avatar style={getAvatarStyle(getAvatarSeed(member.userId, member.name))}>{getAvatarLabel(member.name)}</Avatar>
-                    <span>{member.name}</span>
-                  </Space>
-                  <div className="workload-bar">
-                    <div
-                      className="workload-bar-inner"
-                      style={{ width: `${member.value}%`, background: member.color }}
-                    />
+              {memberLoads.map((member) => {
+                const loadState =
+                  member.value >= 85 ? '超载' : member.value >= 70 ? '偏满' : `${member.urgentCount} 项紧急`
+                const loadStateClass =
+                  member.value >= 85
+                    ? 'workload-state workload-state-danger'
+                    : member.value >= 70
+                      ? 'workload-state workload-state-warning'
+                      : 'workload-state'
+
+                return (
+                  <div key={member.name} className="workload-row">
+                    <div className="workload-person">
+                      <Avatar style={getAvatarStyle(getAvatarSeed(member.userId, member.name))}>{getAvatarLabel(member.name)}</Avatar>
+                      <div className="workload-person-meta">
+                        <span className="workload-name">{member.name}</span>
+                        <span className={loadStateClass}>{loadState}</span>
+                      </div>
+                    </div>
+                    <div className="workload-bar">
+                      <div
+                        className="workload-bar-inner"
+                        style={{ width: `${member.value}%`, background: member.color }}
+                      />
+                    </div>
+                    <span className="workload-value">{member.value}%</span>
                   </div>
-                  <span className="muted-text">{member.value}%</span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </Card>
         </div>

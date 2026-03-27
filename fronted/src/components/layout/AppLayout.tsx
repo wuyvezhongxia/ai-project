@@ -5,7 +5,13 @@ import ProjectCreateModal from '../../modules/projects/components/ProjectCreateM
 import TaskCreateModal from '../../modules/workspace/components/TaskCreateModal'
 import TaskDetailDrawer from '../../modules/workspace/components/TaskDetailDrawer'
 import { pageMeta } from '../../modules/workspace/data/mock'
-import { sidebarTodoListParams, useDashboardQuery, useProjectsQuery, useTodoListQuery } from '../../modules/workspace/services/workspace.queries'
+import {
+  sidebarTodoListParams,
+  useDashboardQuery,
+  useProjectsQuery,
+  useRiskTasksQuery,
+  useTodoListQuery,
+} from '../../modules/workspace/services/workspace.queries'
 import { useWorkspaceStore } from '../../modules/workspace/store/workspace-store'
 
 const getPageKeyFromPath = (pathname: string) => {
@@ -23,10 +29,13 @@ function AppLayout() {
   const currentPage = pageMeta[getPageKeyFromPath(location.pathname)]
   const handlePrimaryAction = openTaskModal
   const { data: dashboard } = useDashboardQuery(isDashboardPage)
+  const { data: dashboardRiskTasks = [] } = useRiskTasksQuery()
   const { data: todoHeaderTasks = [] } = useTodoListQuery(sidebarTodoListParams, isTodosPage)
   const { data: activeProjects = [] } = useProjectsQuery('进行中', isProjectsPage)
   const todoOverdueCount = todoHeaderTasks.filter((task) => task.dueCategory === 'overdue').length
   const activeProjectTaskCount = activeProjects.reduce((sum, project) => sum + project.taskCount, 0)
+  const dashboardDelayedCount = dashboardRiskTasks.filter((task) => task.risk === '已延期').length
+  const dashboardRiskCount = dashboardRiskTasks.filter((task) => task.risk !== '已延期').length
   const todayLabel = new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: 'long',
@@ -34,7 +43,7 @@ function AppLayout() {
     weekday: 'long',
   }).format(new Date())
   const dynamicSubtitle = isDashboardPage
-    ? `${todayLabel} · 今日任务 ${dashboard?.summary?.today ?? 0} 项 · 风险任务 ${dashboard?.summary?.risk ?? 0} 项`
+    ? `${todayLabel} · 今日任务 ${dashboard?.summary?.today ?? 0} 项 · 延期任务 ${dashboardDelayedCount} 项 · 风险任务 ${dashboardRiskCount} 项`
     : isTodosPage
       ? `我的 ${todoHeaderTasks.length} 个待办 · ${todoOverdueCount} 个超期项`
       : isProjectsPage

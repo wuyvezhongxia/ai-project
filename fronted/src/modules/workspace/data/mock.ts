@@ -11,7 +11,7 @@ import type {
 export const pageMeta: Record<PageKey, { title: string; subtitle: string; actionLabel: string }> = {
   dashboard: {
     title: '个人工作台',
-    subtitle: '2026 年 3 月 4 日 星期三 · 今天是你的第 47 个工作日',
+    subtitle: '2026年3月4日 星期三 · 今天是你的第 47 个工作日',
     actionLabel: '新建任务',
   },
   projects: {

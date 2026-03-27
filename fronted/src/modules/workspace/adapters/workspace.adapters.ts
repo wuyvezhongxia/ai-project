@@ -41,12 +41,19 @@ const ganttActiveColors = ['#5a7cff', '#8e7dff', '#37c7ff', '#f6c54f', '#ff9a62'
 const hashString = (value: string) =>
   Array.from(value).reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7)
 
+const getOverdueDays = (date?: string) => {
+  if (!date) return 0
+  const value = dayjs(date)
+  if (!value.isValid()) return 0
+  return Math.max(dayjs().startOf('day').diff(value.startOf('day'), 'day'), 0)
+}
+
 const formatDueText = (date?: string) => {
   if (!date) return '未设置'
   const value = dayjs(date)
   if (!value.isValid()) return date
   if (value.isSame(dayjs(), 'day')) return `今天 ${value.format('HH:mm')}`
-  if (value.isBefore(dayjs(), 'day')) return `已超期 ${dayjs().diff(value, 'day')} 天`
+  if (value.isBefore(dayjs(), 'day')) return `已超期 ${getOverdueDays(date)} 天`
   return value.format('MM/DD HH:mm')
 }
 
@@ -66,13 +73,21 @@ const resolveTaskStatus = (task: ApiTask): WorkTask['status'] => {
 }
 
 const resolveDueText = (task: ApiTask) => {
-  if (task.status === '2') return '——'
+  if (task.status === '2') return '已完成'
   return task.dueText ?? formatDueText(task.dueTime)
 }
 
 const resolveDueCategory = (task: ApiTask): WorkTask['dueCategory'] => {
   if (task.status === '2') return 'completed'
   return task.dueCategory ?? getDueCategory(task.dueTime)
+}
+
+const getDelayedRiskLabel = (task: ApiTask) => {
+  if (!task.dueTime) return '已延期'
+  const value = dayjs(task.dueTime)
+  if (!value.isValid()) return '已延期'
+  const overdueDays = getOverdueDays(task.dueTime)
+  return overdueDays > 0 ? `已延期 ${overdueDays} 天` : '已延期'
 }
 
 const bytesToText = (value?: number) => {
@@ -178,9 +193,9 @@ export const mapRiskTaskToView = (task: ApiTask): RiskTask => ({
   priority: priorityMap[task.priority ?? '0'] ?? 'P3',
   risk:
     resolveTaskStatus(task) === '延期'
-      ? '已延期'
+      ? getDelayedRiskLabel(task)
       : resolveDueCategory(task) === 'today'
-        ? '今日到期'
+        ? '风险预警'
         : task.riskLevel === '3'
           ? '严重风险'
           : '风险提醒',

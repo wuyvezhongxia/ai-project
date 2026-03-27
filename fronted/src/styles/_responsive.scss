@@ -171,7 +171,16 @@
     margin-inline: 18px;
   }
 
-  .task-row,
+  .task-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .task-main,
+  .risk-list-item {
+    width: 100%;
+  }
+
   .risk-list-item {
     grid-template-columns: 1fr;
   }
