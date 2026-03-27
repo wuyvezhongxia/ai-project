@@ -93,7 +93,7 @@ export type ProjectCard = {
   name: string
   owner: string
   ownerId?: string
-  members: Array<{ userId?: string; nickName: string }>
+  members: Array<{ userId?: string; nickName: string; avatarUrl?: string | null }>
   accentColor?: string
   dueAt: string
   progress: number

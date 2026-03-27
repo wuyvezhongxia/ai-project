@@ -10,6 +10,7 @@ export type ApiTaskUser = {
   userName: string
   nickName: string
   deptId?: string
+  avatarUrl?: string | null
 }
 
 export type ApiTask = {

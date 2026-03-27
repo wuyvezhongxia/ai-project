@@ -35,7 +35,6 @@ function ProjectCreateModal() {
     const memberUserIds = Array.from(new Set([values.ownerUserId, ...(values.memberUserIds ?? [])]))
 
     await createProjectMutation.mutateAsync({
-      projectCode: values.projectCode,
       projectName: values.projectName,
       projectDesc: values.projectDesc,
       ownerUserId: values.ownerUserId,
@@ -72,9 +71,6 @@ function ProjectCreateModal() {
         </Form.Item>
 
         <div className="task-form-grid">
-          <Form.Item label="项目编码" name="projectCode">
-            <Input placeholder="可选，如 PROJ-2026-001" size="large" />
-          </Form.Item>
           <Form.Item label="优先级" name="priority">
             <Select
               size="large"

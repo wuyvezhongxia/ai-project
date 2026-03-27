@@ -8,7 +8,7 @@ import type { EChartsOption } from 'echarts'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
-import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
+import { getAvatarLabel, getAvatarSeed, getAvatarStyle, getNeutralAvatarStyle } from '../../workspace/utils/avatar'
 import {
   useProjectGanttQuery,
   useProjectsQuery,
@@ -311,13 +311,14 @@ function ProjectsPage() {
                     key={`${project.id}-${member.userId ?? member.nickName}`}
                     size="small"
                     className="avatar-stack-item"
-                    style={getAvatarStyle(getAvatarSeed(member.userId, member.nickName))}
+                    src={member.avatarUrl || undefined}
+                    style={member.avatarUrl ? undefined : getAvatarStyle(getAvatarSeed(member.userId, member.nickName))}
                   >
                     {getAvatarLabel(member.nickName)}
                   </Avatar>
                 ))}
                 {remainingMemberCount > 0 ? (
-                  <Avatar size="small" className="avatar-stack-item avatar-stack-count">
+                  <Avatar size="small" className="avatar-stack-item avatar-stack-count" style={getNeutralAvatarStyle()}>
                     +{remainingMemberCount}
                   </Avatar>
                 ) : null}

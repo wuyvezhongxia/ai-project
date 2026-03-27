@@ -61,13 +61,14 @@ export function toDeptProfile(d: DbDept): DeptProfile {
   };
 }
 
-export function toUserProfile(u: DbUser): UserProfile {
+export function toUserProfile(u: DbUser, avatarUrl?: string | null): UserProfile {
   return {
     userId: fromDbId(u.userId)!,
     tenantId: u.tenantId ?? "",
     deptId: fromDbId(u.deptId)!,
     userName: u.userName,
     nickName: u.nickName,
+    avatarUrl: avatarUrl ?? undefined,
     status: (u.status ?? "1") as UserProfile["status"],
     delFlag: (u.delFlag ?? "1") as UserProfile["delFlag"],
   };

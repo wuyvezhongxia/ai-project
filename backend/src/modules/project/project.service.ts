@@ -19,6 +19,12 @@ type AddMembersInput = z.infer<typeof addMembersSchema>;
 
 const now = () => new Date();
 
+const generateProjectCode = (createdAt: Date) => {
+  const datePart = createdAt.toISOString().slice(0, 10).replace(/-/g, "");
+  const timePart = createdAt.toISOString().slice(11, 19).replace(/:/g, "");
+  return `PROJ-${datePart}-${timePart}`;
+};
+
 const getActiveUser = async (tenantId: string, userId: string) => {
   const user = await prisma.user.findFirst({
     where: { userId: toDbId(userId), tenantId, status: "0", delFlag: "0" },
@@ -72,6 +78,22 @@ const isRiskTask = (task: { status: string; riskLevel?: string | null; dueTime?:
   return ["2", "3"].includes(task.riskLevel ?? "0") || dueSoon;
 };
 
+const buildAvatarUrlMap = async (avatarIds: bigint[]) => {
+  const uniqueAvatarIds = [...new Set(avatarIds.map((item) => item.toString()))].map((item) => BigInt(item));
+  if (!uniqueAvatarIds.length) return new Map<string, string>();
+
+  const attachments = await prisma.attachment.findMany({
+    where: { id: { in: uniqueAvatarIds }, delFlag: "0" },
+    select: { id: true, fileUrl: true },
+  });
+
+  return new Map(
+    attachments
+      .filter((item) => item.fileUrl?.trim())
+      .map((item) => [item.id.toString(), item.fileUrl.trim()]),
+  );
+};
+
 const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>>) => {
   const project = toProject(row);
   const [owner, members, tasks, tagRels] = await Promise.all([
@@ -95,7 +117,12 @@ const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>
           where: { userId: { in: memberUserIds }, status: "0", delFlag: "0" },
         })
       : [];
-  const memberUserMap = new Map(memberUsers.map((item) => [item.userId, toUserProfile(item)]));
+  const avatarUrlMap = await buildAvatarUrlMap(
+    [owner?.avatar, ...memberUsers.map((item) => item.avatar)].filter((item): item is bigint => Boolean(item)),
+  );
+  const memberUserMap = new Map(
+    memberUsers.map((item) => [item.userId, toUserProfile(item, item.avatar ? avatarUrlMap.get(item.avatar.toString()) : undefined)]),
+  );
   const memberProfiles = members
     .map((item) => memberUserMap.get(item.userId))
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -108,7 +135,7 @@ const decorateProject = async (row: Awaited<ReturnType<typeof getProjectOrThrow>
 
   return {
     ...project,
-    owner: owner ? toUserProfile(owner) : undefined,
+    owner: owner ? toUserProfile(owner, owner.avatar ? avatarUrlMap.get(owner.avatar.toString()) : undefined) : undefined,
     members: memberProfiles,
     membersCount: members.length,
     taskCount: tasks.length,
@@ -154,7 +181,7 @@ export const projectService = {
       const p = await tx.project.create({
         data: {
           tenantId: ctx.tenantId,
-          projectCode: input.projectCode,
+          projectCode: input.projectCode?.trim() || generateProjectCode(createdAt),
           projectName: input.projectName,
           projectDesc: input.projectDesc,
           ownerUserId: toDbId(input.ownerUserId),
@@ -306,7 +333,10 @@ export const projectService = {
     });
     const userIds = [...new Set(members.map((m) => m.userId))];
     const users = await prisma.user.findMany({ where: { userId: { in: userIds } } });
-    const userMap = new Map(users.map((u) => [u.userId, toUserProfile(u)]));
+    const avatarUrlMap = await buildAvatarUrlMap(users.map((item) => item.avatar).filter((item): item is bigint => Boolean(item)));
+    const userMap = new Map(
+      users.map((u) => [u.userId, toUserProfile(u, u.avatar ? avatarUrlMap.get(u.avatar.toString()) : undefined)]),
+    );
 
     return members.map((item) => ({
       ...toProjectMember(item),

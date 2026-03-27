@@ -28,6 +28,7 @@ export type UserProfile = {
   deptId: ID;
   userName: string;
   nickName: string;
+  avatarUrl?: string | null;
   status: "0" | "1";
   delFlag: "0" | "1";
 };

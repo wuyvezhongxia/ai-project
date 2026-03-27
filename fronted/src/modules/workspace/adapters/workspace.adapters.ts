@@ -198,9 +198,10 @@ export const mapProjectToCard = (project: ApiProject): ProjectCard => ({
       ? project.members.map((member) => ({
           userId: member.userId,
           nickName: member.nickName,
+          avatarUrl: member.avatarUrl,
         }))
       : project.owner
-        ? [{ userId: project.owner.userId, nickName: project.owner.nickName }]
+        ? [{ userId: project.owner.userId, nickName: project.owner.nickName, avatarUrl: project.owner.avatarUrl }]
         : [],
   dueAt: project.endTime ? dayjs(project.endTime).format('YYYY.MM.DD') : '未设置',
   progress:
