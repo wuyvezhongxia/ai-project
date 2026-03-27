@@ -38,6 +38,8 @@ export type RiskTask = {
   priority: 'P0' | 'P1' | 'P2' | 'P3'
   risk: string
   dueText: string
+  owner: string
+  ownerId?: string
 }
 
 export type Subtask = {

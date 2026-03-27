@@ -7,6 +7,22 @@
 
 .stat-card {
   min-height: 126px;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(95, 117, 255, 0.28) !important;
+  box-shadow: 0 10px 24px rgba(8, 12, 24, 0.24);
+  background: rgba(24, 30, 48, 0.96) !important;
+}
+
+.stat-card:active {
+  transform: translateY(0);
 }
 
 .stat-card > .ant-card-body {
@@ -363,6 +379,24 @@
 .risk-date {
   color: #ff7b88;
   font-size: 12px;
+}
+
+.risk-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.risk-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #dbe3ff;
+}
+
+.risk-owner-name {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .assistant-panel {

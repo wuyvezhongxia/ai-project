@@ -199,10 +199,18 @@ function DashboardPage() {
                     <div className="task-meta">
                       <span>{task.project}</span>
                       <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
-                        <Tag color={getRiskTagColor(task.risk)}>{task.risk}</Tag>
+                      <Tag color={getRiskTagColor(task.risk)}>{task.risk}</Tag>
                     </div>
                   </div>
-                  <span className="risk-date">{task.dueText}</span>
+                  <div className="risk-side">
+                    <div className="risk-owner">
+                      <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
+                        {getAvatarLabel(task.owner)}
+                      </Avatar>
+                      <span className="risk-owner-name">{task.owner}</span>
+                    </div>
+                    <span className="risk-date">{task.dueText}</span>
+                  </div>
                 </List.Item>
               )}
             />

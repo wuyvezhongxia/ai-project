@@ -200,6 +200,8 @@ export const mapRiskTaskToView = (task: ApiTask): RiskTask => ({
           ? '严重风险'
           : '风险提醒',
   dueText: formatDueText(task.dueTime),
+  owner: task.assignee?.nickName ?? '未分配',
+  ownerId: task.assigneeUserId,
 })
 
 export const mapProjectToCard = (project: ApiProject): ProjectCard => ({
