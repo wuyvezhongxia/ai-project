@@ -1,13 +1,12 @@
 .app-shell {
   display: flex;
   flex-direction: column;
-  gap: 20px;
   min-height: 100%;
-  padding: 24px;
   color: var(--pm-text-primary);
   background: var(--pm-bg-app);
 }
 
 .app-content {
   min-width: 0;
+  padding: 20px 24px 28px;
 }

@@ -1,7 +1,7 @@
 .project-card-scroll {
   container-type: inline-size;
   overflow-x: auto;
-  padding-top: 6px;
+  padding-top: 0;
   padding-bottom: 10px;
   scrollbar-width: thin;
   scrollbar-color: var(--pm-scrollbar-strong) var(--pm-scrollbar-track);
@@ -21,6 +21,13 @@
   gap: 16px;
   width: max-content;
   min-width: 100%;
+}
+
+.project-page-toolbar {
+  width: 100%;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
 }
 
 .project-summary-card {

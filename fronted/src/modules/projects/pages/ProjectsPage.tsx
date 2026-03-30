@@ -5,6 +5,8 @@ import type { MenuProps } from 'antd'
 import { DownOutlined, PlusOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
+import { useOutletContext } from 'react-router-dom'
+import type { AppLayoutOutletContext } from '../../../components/layout/AppLayout'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
@@ -60,6 +62,7 @@ function ProjectStatsChart({ option, className }: { option: EChartsOption; class
 }
 
 function ProjectsPage() {
+  const { setHeaderToolbar } = useOutletContext<AppLayoutOutletContext>()
   const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
@@ -194,16 +197,59 @@ function ProjectsPage() {
     [resolvedProjectStats],
   )
   const projectFilterLabel = projectFilter === 'risk' ? '有风险' : projectFilter === 'delay' ? '有延期' : '全部项目'
-  const filterMenu: MenuProps = {
-    selectable: true,
-    selectedKeys: [projectFilter],
-    items: [
-      { key: 'all', label: '全部项目' },
-      { key: 'risk', label: '有风险' },
-      { key: 'delay', label: '有延期' },
-    ],
-    onClick: ({ key }) => setProjectFilter(key),
-  }
+  const filterMenu = useMemo<MenuProps>(
+    () => ({
+      selectable: true,
+      selectedKeys: [projectFilter],
+      items: [
+        { key: 'all', label: '全部项目' },
+        { key: 'risk', label: '有风险' },
+        { key: 'delay', label: '有延期' },
+      ],
+      onClick: ({ key }) => setProjectFilter(key),
+    }),
+    [projectFilter],
+  )
+
+  const projectHeaderToolbar = useMemo(
+    () => (
+      <div className="toolbar-row toolbar-row-wrap project-page-toolbar">
+        <Space wrap>
+          {['全部项目', '进行中', '已归档'].map((tab) => (
+            <Button
+              key={tab}
+              type={projectStatusTab === tab ? 'primary' : 'default'}
+              className={projectStatusTab === tab ? '' : 'ghost-button'}
+              onClick={() => setProjectStatusTab(tab)}
+            >
+              {tab}
+            </Button>
+          ))}
+        </Space>
+        <Space wrap>
+          <Dropdown menu={filterMenu} trigger={['hover', 'click']}>
+            <Button className="ghost-button" icon={<DownOutlined />}>
+              {projectFilter === 'all' ? '筛选' : `筛选 · ${projectFilterLabel}`}
+            </Button>
+          </Dropdown>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openProjectModal}>
+            新建项目
+          </Button>
+        </Space>
+      </div>
+    ),
+    [filterMenu, openProjectModal, projectFilterLabel, projectStatusTab],
+  )
+
+  useEffect(() => {
+    setHeaderToolbar(projectHeaderToolbar)
+  }, [projectHeaderToolbar, setHeaderToolbar])
+
+  useEffect(() => {
+    return () => {
+      setHeaderToolbar(null)
+    }
+  }, [setHeaderToolbar])
 
   if (loadingProjects && !projectCards.length) {
     return (
@@ -217,33 +263,6 @@ function ProjectsPage() {
 
   return (
     <section className="page-stack">
-      <Card className="glass-card">
-        <div className="toolbar-row toolbar-row-wrap">
-          <Space wrap>
-            {['全部项目', '进行中', '已归档'].map((tab) => (
-              <Button
-                key={tab}
-                type={projectStatusTab === tab ? 'primary' : 'default'}
-                className={projectStatusTab === tab ? '' : 'ghost-button'}
-                onClick={() => setProjectStatusTab(tab)}
-              >
-                {tab}
-              </Button>
-            ))}
-          </Space>
-          <Space wrap>
-            <Dropdown menu={filterMenu} trigger={['hover', 'click']}>
-              <Button className="ghost-button" icon={<DownOutlined />}>
-                {projectFilter === 'all' ? '筛选' : `筛选 · ${projectFilterLabel}`}
-              </Button>
-            </Dropdown>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openProjectModal}>
-              新建项目
-            </Button>
-          </Space>
-        </div>
-      </Card>
-
       <div className="project-card-scroll">
         <div className="project-card-grid">
           {visibleProjectCards.map((project) => {

@@ -69,6 +69,15 @@
   .sidebar-user {
     margin-left: 0;
   }
+
+  .dashboard-header {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .dashboard-header-toolbar {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 900px) {
@@ -128,12 +137,12 @@
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 16px;
+    padding: 0;
   }
 
   .dashboard-shell {
     --dashboard-shell-padding: 18px;
-    padding: var(--dashboard-shell-padding);
+    padding: 0;
   }
 
   .app-sidebar {
@@ -152,6 +161,10 @@
 
   .sidebar-primary-action {
     width: 100%;
+  }
+
+  .app-content {
+    padding: 16px;
   }
 
   .task-row {

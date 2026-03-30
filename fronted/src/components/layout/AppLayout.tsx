@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import AppSidebar from './AppSidebar'
 import PageHeader from './PageHeader'
@@ -20,6 +22,10 @@ const getPageKeyFromPath = (pathname: string) => {
   return 'dashboard'
 }
 
+export type AppLayoutOutletContext = {
+  setHeaderToolbar: (toolbar: ReactNode | null) => void
+}
+
 function AppLayout() {
   const location = useLocation()
   const isDashboardPage = location.pathname === '/' || location.pathname.startsWith('/dashboard')
@@ -28,6 +34,7 @@ function AppLayout() {
   const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
   const currentPage = pageMeta[getPageKeyFromPath(location.pathname)]
   const handlePrimaryAction = openTaskModal
+  const [headerToolbar, setHeaderToolbar] = useState<ReactNode | null>(null)
   const { data: dashboard } = useDashboardQuery(isDashboardPage)
   const { data: dashboardRiskTasks = [] } = useRiskTasksQuery()
   const { data: todoHeaderTasks = [] } = useTodoListQuery(sidebarTodoListParams, isTodosPage)
@@ -58,8 +65,9 @@ function AppLayout() {
           <PageHeader
             title={currentPage.title}
             subtitle={dynamicSubtitle}
+            toolbar={headerToolbar}
           />
-          <Outlet />
+          <Outlet context={{ setHeaderToolbar }} />
         </main>
       </div>
 

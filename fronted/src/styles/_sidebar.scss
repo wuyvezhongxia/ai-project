@@ -3,11 +3,9 @@
   display: flex;
   align-items: center;
   gap: 20px;
-  padding: 18px 24px;
+  padding: 12px 24px;
   background: var(--pm-bg-sidebar);
-  border: 1px solid var(--pm-border-card);
-  border-radius: 24px;
-  box-shadow: var(--pm-shadow-card-soft);
+  border-bottom: 1px solid var(--pm-border-card);
 }
 
 .nav-menu {
@@ -117,10 +115,9 @@
   align-items: center;
   gap: 14px;
   flex-shrink: 0;
-  padding: 10px 12px;
-  border-radius: 18px;
-  border: 1px solid var(--pm-border-row-faint);
-  background: var(--pm-bg-button);
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
   transition:
     background-color 180ms ease,
     border-color 180ms ease,
@@ -128,9 +125,9 @@
 }
 
 .sidebar-user:hover {
-  background: var(--pm-bg-hover);
-  border-color: var(--pm-border-muted);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .sidebar-user .ant-avatar {
