@@ -308,7 +308,7 @@ function TaskDetailDrawer() {
                       percent={subtaskPercent}
                       showInfo={false}
                       strokeColor="#20d6a7"
-                      trailColor="rgba(255,255,255,0.08)"
+                      trailColor="var(--pm-chart-trail)"
                     />
                     <List
                       dataSource={selectedTask.subtasks}

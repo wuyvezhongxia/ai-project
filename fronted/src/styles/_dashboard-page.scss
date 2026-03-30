@@ -17,8 +17,8 @@
 .stat-card:hover {
   transform: translateY(-1px);
   border-color: rgba(95, 117, 255, 0.28) !important;
-  box-shadow: 0 10px 24px rgba(8, 12, 24, 0.24);
-  background: rgba(24, 30, 48, 0.96) !important;
+  box-shadow: var(--pm-shadow-lifted);
+  background: var(--pm-bg-card-hover) !important;
 }
 
 .stat-card:active {
@@ -43,9 +43,9 @@
   gap: 8px;
   max-width: calc(100% - 34px);
   padding: 4px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--pm-border-muted);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--pm-bg-chip);
 }
 
 .stat-card-badge-1 {
@@ -80,8 +80,8 @@
   height: 22px;
   border-radius: 7px;
   font-size: 12px;
-  color: #eef2ff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--pm-text-primary);
+  background: var(--pm-bg-progress-trail);
 }
 
 .stat-card-icon-1 {
@@ -107,13 +107,13 @@
 .stat-card-ornament {
   width: 18px;
   height: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--pm-border-muted);
   border-radius: 50%;
   opacity: 0.7;
 }
 
 .stat-card-title {
-  color: #8991b3;
+  color: var(--pm-text-muted);
   overflow: hidden;
   font-size: 12px;
   font-weight: 500;
@@ -126,7 +126,7 @@
   font-size: 28px;
   line-height: 1;
   font-weight: 700;
-  color: #f7f8ff;
+  color: var(--pm-text-heading);
 }
 
 .stat-card .ant-progress {
@@ -144,7 +144,7 @@
 
 .stat-card .ant-progress-inner {
   height: 3px !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: var(--pm-bg-progress-trail) !important;
 }
 
 .stat-card .ant-progress-bg {
@@ -154,7 +154,7 @@
 
 .stat-card-footer {
   margin-top: 8px;
-  color: #737da2;
+  color: var(--pm-text-faint);
   font-size: 11px;
 }
 
@@ -203,14 +203,14 @@
 .dashboard-grid .glass-card > .ant-card-head {
   min-height: 46px;
   padding: 0 16px;
-  border-bottom: 1px solid rgba(62, 88, 210, 0.45) !important;
+  border-bottom: 1px solid var(--pm-border-card) !important;
 }
 
 .dashboard-grid .glass-card > .ant-card-head .ant-card-head-title {
   padding: 14px 0 !important;
   font-size: 15px;
   font-weight: 600;
-  color: #f4f7ff;
+  color: var(--pm-text-heading);
 }
 
 .dashboard-grid .glass-card > .ant-card-head .ant-card-extra {
@@ -254,7 +254,7 @@
 
 .task-list-item-clickable:hover,
 .risk-list-item-clickable:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--pm-bg-hover);
 }
 
 .task-list-item:last-child,
@@ -297,13 +297,13 @@
   overflow: hidden;
   font-size: 15px;
   font-weight: 600;
-  color: #f5f7ff;
+  color: var(--pm-text-heading);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .task-title-done {
-  color: #6f7694;
+  color: var(--pm-text-faint);
   text-decoration: line-through;
 }
 
@@ -312,7 +312,7 @@
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  color: #6f7b9e;
+  color: var(--pm-text-faint);
   font-size: 12px;
 }
 
@@ -371,7 +371,7 @@
 }
 
 .risk-title {
-  color: #f4f7ff;
+  color: var(--pm-text-heading);
   font-size: 15px;
   font-weight: 600;
 }
@@ -391,7 +391,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #dbe3ff;
+  color: var(--pm-text-body);
 }
 
 .risk-owner-name {
@@ -429,7 +429,7 @@
   height: 20px;
   margin-top: 6px;
   border-radius: 6px;
-  color: #dbe3ff;
+  color: var(--pm-text-body);
   background: linear-gradient(180deg, rgba(87, 111, 255, 0.96), rgba(76, 93, 205, 0.92));
   box-shadow: 0 10px 20px rgba(38, 60, 154, 0.28);
 }
@@ -437,34 +437,34 @@
 .assistant-bubble {
   max-width: calc(100% - 30px);
   padding: 10px 12px;
-  border: 1px solid rgba(113, 128, 178, 0.18);
+  border: 1px solid var(--pm-border-field);
   border-radius: 10px;
-  color: #e9ecff;
+  color: var(--pm-text-primary);
   font-size: 13px;
   line-height: 1.6;
-  background: rgba(33, 39, 58, 0.88);
+  background: var(--pm-bg-bubble);
 }
 
 .assistant-bubble-user {
-  background: linear-gradient(135deg, rgba(82, 110, 255, 0.9), rgba(104, 128, 255, 0.82));
+  background: var(--pm-gradient-bubble-user);
 }
 
 .assistant-search .ant-input-affix-wrapper,
 .assistant-search .ant-input-group-addon .ant-btn {
   height: 34px;
-  border-color: rgba(93, 114, 196, 0.22) !important;
-  background: rgba(18, 24, 40, 0.98) !important;
+  border-color: var(--pm-border-field) !important;
+  background: var(--pm-bg-field-strong) !important;
   box-shadow: none !important;
 }
 
 .assistant-search .ant-input-affix-wrapper {
-  color: #e6ebff;
+  color: var(--pm-text-primary);
 }
 
 .assistant-search .ant-input-group .ant-input-group-addon:last-child .ant-input-search-button {
   min-width: 56px;
-  color: #f5f7ff;
-  background: linear-gradient(135deg, #4d6bff, #5b7cff) !important;
+  color: var(--pm-text-on-accent);
+  background: var(--pm-gradient-primary-soft) !important;
 }
 
 .assistant-shortcut.ant-tag {
@@ -532,7 +532,7 @@
 
 .workload-name {
   overflow: hidden;
-  color: #eef2ff;
+  color: var(--pm-text-primary);
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -555,7 +555,7 @@
   height: 5px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--pm-bg-progress-trail);
 }
 
 .workload-bar-inner {
@@ -564,6 +564,6 @@
 }
 
 .workload-value {
-  color: #dbe3ff;
+  color: var(--pm-text-body);
   font-size: 12px;
 }

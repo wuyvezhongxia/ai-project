@@ -1,8 +1,8 @@
 .glass-card {
   border: 1px solid var(--pm-border-card) !important;
   border-radius: 22px !important;
-  background: linear-gradient(180deg, rgba(22, 27, 41, 0.95), rgba(15, 18, 29, 0.95)) !important;
-  box-shadow: 0 18px 48px rgba(3, 6, 18, 0.36);
+  background: var(--pm-bg-card) !important;
+  box-shadow: var(--pm-shadow-card);
 }
 
 .toolbar-row {
@@ -17,7 +17,7 @@
 }
 
 .muted-text {
-  color: #8088a7;
+  color: var(--pm-text-muted);
 }
 
 .success-text {
@@ -29,9 +29,9 @@
 }
 
 .ghost-button {
-  border-color: rgba(121, 136, 189, 0.18) !important;
-  background: rgba(26, 31, 48, 0.92) !important;
-  color: #eef1ff !important;
+  border-color: var(--pm-border-field) !important;
+  background: var(--pm-bg-button) !important;
+  color: var(--pm-text-primary) !important;
 }
 
 .full-width {
@@ -48,5 +48,5 @@
 
 .tab-placeholder {
   padding: 24px 0;
-  color: #838cab;
+  color: var(--pm-text-muted);
 }

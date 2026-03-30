@@ -4,7 +4,7 @@
   padding-top: 6px;
   padding-bottom: 10px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(112, 131, 205, 0.45) transparent;
+  scrollbar-color: var(--pm-scrollbar-strong) var(--pm-scrollbar-track);
 }
 
 .project-card-scroll::-webkit-scrollbar {
@@ -13,7 +13,7 @@
 
 .project-card-scroll::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(112, 131, 205, 0.4);
+  background: var(--pm-scrollbar);
 }
 
 .project-card-grid {
@@ -35,9 +35,9 @@
   border: 1px solid var(--pm-border-card);
   border-radius: 20px;
   text-align: left;
-  color: #f5f7ff;
-  background: linear-gradient(180deg, rgba(22, 27, 41, 0.95), rgba(15, 18, 29, 0.95));
-  box-shadow: 0 18px 48px rgba(3, 6, 18, 0.28);
+  color: var(--pm-text-primary);
+  background: var(--pm-bg-card);
+  box-shadow: var(--pm-shadow-card-soft);
   cursor: pointer;
   box-sizing: border-box;
   flex: 0 0 calc((100cqw - 32px) / 3);
@@ -73,13 +73,13 @@
 .project-card-title {
   font-size: 18px;
   font-weight: 700;
-  color: #f8f9ff;
+  color: var(--pm-text-heading);
   line-height: 1.2;
   min-width: 0;
 }
 
 .project-card-subtitle {
-  color: #7e87a7;
+  color: var(--pm-text-muted);
   font-size: 13px;
 }
 
@@ -87,7 +87,7 @@
   display: flex;
   justify-content: space-between;
   grid-column: 1 / -1;
-  color: #aab2cf;
+  color: var(--pm-text-secondary);
   font-size: 12px;
 }
 
@@ -116,11 +116,11 @@
   flex-shrink: 0;
   align-self: flex-start;
   margin-inline-start: 8px;
-  color: #e8eeff;
+  color: var(--pm-text-primary);
   font-weight: 600;
   white-space: nowrap;
   border-color: rgba(125, 141, 205, 0.3);
-  background: rgba(22, 28, 46, 0.9);
+  background: var(--pm-bg-overlay);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -129,7 +129,7 @@
   align-items: center;
   gap: 14px;
   grid-column: 1;
-  color: #8690ae;
+  color: var(--pm-text-muted);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -180,7 +180,7 @@
   padding-top: 6px;
   padding-bottom: 10px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(112, 131, 205, 0.45) transparent;
+  scrollbar-color: var(--pm-scrollbar-strong) var(--pm-scrollbar-track);
 }
 
 .project-kanban-board::-webkit-scrollbar {
@@ -189,7 +189,7 @@
 
 .project-kanban-board::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(112, 131, 205, 0.4);
+  background: var(--pm-scrollbar);
 }
 
 .kanban-board-single {
@@ -220,7 +220,7 @@
   flex-direction: column;
   border: 1px solid var(--pm-border-row);
   border-radius: 18px;
-  background: rgba(18, 22, 36, 0.92);
+  background: var(--pm-bg-gantt);
   overflow: hidden;
   min-height: 260px;
   max-height: 560px;
@@ -229,7 +229,7 @@
 .kanban-column-header {
   padding: 12px 14px;
   border-bottom: 1px solid var(--pm-border-row);
-  color: #dfe4fb;
+  color: var(--pm-text-body);
 }
 
 .kanban-dot {
@@ -247,7 +247,7 @@
   min-height: 180px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(112, 131, 205, 0.55) transparent;
+  scrollbar-color: var(--pm-scrollbar-strong) var(--pm-scrollbar-track);
 }
 
 .kanban-column-body::-webkit-scrollbar {
@@ -256,7 +256,7 @@
 
 .kanban-column-body::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(112, 131, 205, 0.45);
+  background: var(--pm-scrollbar-strong);
 }
 
 .kanban-column-body::-webkit-scrollbar-track {
@@ -269,8 +269,8 @@
   border: 1px solid var(--pm-border-row);
   border-radius: 16px;
   text-align: left;
-  color: #f5f7ff;
-  background: rgba(29, 35, 52, 0.9);
+  color: var(--pm-text-heading);
+  background: var(--pm-bg-overlay);
   cursor: pointer;
   transition:
     transform 0.18s ease,
@@ -282,8 +282,8 @@
 .board-task-card:hover {
   transform: translateY(-2px);
   border-color: rgba(111, 124, 255, 0.42);
-  background: rgba(34, 41, 61, 0.98);
-  box-shadow: 0 14px 30px rgba(6, 10, 24, 0.34);
+  background: var(--pm-bg-card-hover);
+  box-shadow: var(--pm-shadow-card-soft);
 }
 
 .board-task-card:focus-visible {
@@ -292,7 +292,7 @@
   border-color: rgba(111, 124, 255, 0.6);
   box-shadow:
     0 0 0 2px rgba(111, 124, 255, 0.22),
-    0 14px 30px rgba(6, 10, 24, 0.34);
+    var(--pm-shadow-card-soft);
 }
 
 .kanban-board-single .board-task-card,
@@ -311,7 +311,7 @@
   align-items: center;
   justify-content: space-between;
   margin-top: 10px;
-  color: #8a93b4;
+  color: var(--pm-text-muted);
   font-size: 13px;
 }
 
@@ -322,7 +322,7 @@
   justify-content: center;
   width: 100%;
   min-height: 100%;
-  color: #747ea2;
+  color: var(--pm-text-faint);
   font-size: 13px;
   text-align: center;
 }
@@ -347,7 +347,7 @@
 }
 
 .gantt-label {
-  color: #eef2ff;
+  color: var(--pm-text-primary);
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.01em;
@@ -367,9 +367,7 @@
   height: 10px;
   transform: translateY(-50%);
   border-radius: 999px;
-  background:
-    linear-gradient(90deg, rgba(86, 100, 150, 0.18), rgba(86, 100, 150, 0.08)),
-    rgba(255, 255, 255, 0.03);
+  background: var(--pm-bg-gantt-track);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -441,16 +439,16 @@
   padding: 16px 18px;
   border: 1px solid var(--pm-border-row);
   border-radius: 18px;
-  background: rgba(17, 22, 36, 0.68);
+  background: var(--pm-bg-gantt);
 }
 
 .project-stats-kpi-label {
-  color: #8f99ba;
+  color: var(--pm-text-muted);
   font-size: 13px;
 }
 
 .project-stats-kpi-value {
-  color: #f5f7ff;
+  color: var(--pm-text-heading);
   font-size: 28px;
   font-weight: 700;
   line-height: 1;
@@ -463,7 +461,7 @@
 
 .project-stats-panel-title {
   margin-bottom: 10px;
-  color: #e8ecff;
+  color: var(--pm-text-primary);
   font-size: 15px;
   font-weight: 600;
 }

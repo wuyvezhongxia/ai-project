@@ -5,6 +5,7 @@ import type { MenuProps } from 'antd'
 import { DownOutlined, PlusOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
+import { useThemeMode } from '../../../lib/theme/theme-provider'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
@@ -60,6 +61,7 @@ function ProjectStatsChart({ option, className }: { option: EChartsOption; class
 }
 
 function ProjectsPage() {
+  const { isDarkTheme } = useThemeMode()
   const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
@@ -122,6 +124,18 @@ function ProjectsPage() {
 
     return [todoColumn, doingColumn, riskColumn, doneColumn, delayColumn].filter((column): column is BoardColumn => Boolean(column))
   }, [activeProjectBoard, activeProjectList])
+  const chartTheme = useMemo(
+    () => ({
+      titleColor: isDarkTheme ? '#f5f7ff' : '#1f2740',
+      subtitleColor: isDarkTheme ? '#8690ae' : '#6f7c98',
+      trailColor: isDarkTheme ? 'rgba(104, 118, 160, 0.22)' : 'rgba(103, 117, 164, 0.16)',
+      gridColor: isDarkTheme ? 'rgba(118, 129, 170, 0.12)' : 'rgba(118, 129, 170, 0.18)',
+      axisColor: isDarkTheme ? '#7f89ab' : '#7180a2',
+      labelColor: isDarkTheme ? '#dbe3ff' : '#334160',
+      seriesLabelColor: isDarkTheme ? '#eef2ff' : '#2b3551',
+    }),
+    [isDarkTheme],
+  )
   const completionChartOption = useMemo<EChartsOption>(
     () => ({
       animation: false,
@@ -131,8 +145,8 @@ function ProjectsPage() {
         subtext: '任务完成度',
         left: 'center',
         top: '36%',
-        textStyle: { color: '#f5f7ff', fontSize: 28, fontWeight: 700 },
-        subtextStyle: { color: '#8690ae', fontSize: 12 },
+        textStyle: { color: chartTheme.titleColor, fontSize: 28, fontWeight: 700 },
+        subtextStyle: { color: chartTheme.subtitleColor, fontSize: 12 },
       },
       tooltip: { trigger: 'item' },
       series: [
@@ -147,13 +161,13 @@ function ProjectsPage() {
             {
               value: Math.max(resolvedProjectStats.totalTasks - resolvedProjectStats.completedTasks, 0),
               name: '未完成',
-              itemStyle: { color: 'rgba(104, 118, 160, 0.22)' },
+              itemStyle: { color: chartTheme.trailColor },
             },
           ],
         },
       ],
     }),
-    [resolvedProjectStats],
+    [chartTheme, resolvedProjectStats],
   )
   const statusChartOption = useMemo<EChartsOption>(
     () => ({
@@ -163,15 +177,15 @@ function ProjectsPage() {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       xAxis: {
         type: 'value',
-        splitLine: { lineStyle: { color: 'rgba(118, 129, 170, 0.12)' } },
-        axisLabel: { color: '#7f89ab' },
+        splitLine: { lineStyle: { color: chartTheme.gridColor } },
+        axisLabel: { color: chartTheme.axisColor },
       },
       yAxis: {
         type: 'category',
         data: ['已完成', '风险', '延期'],
         axisTick: { show: false },
         axisLine: { show: false },
-        axisLabel: { color: '#dbe3ff' },
+        axisLabel: { color: chartTheme.labelColor },
       },
       series: [
         {
@@ -185,13 +199,13 @@ function ProjectsPage() {
           label: {
             show: true,
             position: 'right',
-            color: '#eef2ff',
+            color: chartTheme.seriesLabelColor,
             fontWeight: 600,
           },
         },
       ],
     }),
-    [resolvedProjectStats],
+    [chartTheme, resolvedProjectStats],
   )
   const projectFilterLabel = projectFilter === 'risk' ? '有风险' : projectFilter === 'delay' ? '有延期' : '全部项目'
   const filterMenu: MenuProps = {
@@ -297,7 +311,7 @@ function ProjectsPage() {
                 showInfo={false}
                 strokeWidth={4}
                 strokeColor={accentColor}
-                trailColor="rgba(255,255,255,0.08)"
+                trailColor="var(--pm-chart-trail)"
               />
               <div className="project-card-metrics">
                 <span>{project.taskCount} 项任务</span>

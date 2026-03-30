@@ -4,7 +4,7 @@
   flex-direction: column;
   justify-content: space-between;
   height: 100vh;
-  background: rgba(13, 17, 28, 0.92);
+  background: var(--pm-bg-sidebar);
   border-right: 1px solid var(--pm-border-default);
 }
 
@@ -34,8 +34,8 @@
   width: 42px;
   height: 42px;
   border-radius: 14px;
-  color: #fff;
-  background: linear-gradient(135deg, #4466ff, #6b8bff);
+  color: var(--pm-text-on-accent);
+  background: var(--pm-gradient-brand);
   box-shadow: 0 12px 28px rgba(68, 102, 255, 0.28);
 }
 
@@ -52,14 +52,14 @@
   font-size: 18px;
   font-weight: 700;
   line-height: 1.2;
-  color: #f7f8fe;
+  color: var(--pm-text-heading);
 }
 
 .brand-subtitle {
   margin: 0;
   font-size: 12px;
   line-height: 1.2;
-  color: #6e7696;
+  color: var(--pm-text-faint);
   text-transform: lowercase;
 }
 
@@ -84,7 +84,7 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: #6e7696;
+  color: var(--pm-text-faint);
   text-transform: uppercase;
 }
 
@@ -103,7 +103,7 @@
   padding: 10px 14px;
   border: 1px solid transparent;
   border-radius: 14px;
-  color: #a7aec9;
+  color: var(--pm-text-secondary);
   background: transparent;
   cursor: pointer;
   text-decoration: none;
@@ -136,8 +136,8 @@
 
 .nav-item:hover,
 .nav-item-active {
-  color: #f8f9ff;
-  background: linear-gradient(180deg, rgba(71, 97, 226, 0.24), rgba(53, 68, 132, 0.18));
+  color: var(--pm-text-heading);
+  background: var(--pm-gradient-nav-active);
   border-color: rgba(111, 129, 255, 0.28);
   transform: translateY(-1px);
 }
@@ -168,7 +168,7 @@
   padding: 2px 6px;
   border-radius: 999px;
   font-size: 12px;
-  color: #f5f7ff;
+  color: var(--pm-text-on-accent);
   background: rgba(47, 213, 166, 0.85);
 }
 
@@ -192,7 +192,7 @@
 }
 
 .sidebar-user:hover {
-  background: rgba(19, 24, 36, 0.92);
+  background: var(--pm-bg-hover);
   border-color: var(--pm-border-muted);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
@@ -214,7 +214,7 @@
 }
 
 .sidebar-user-name {
-  color: #f4f7ff;
+  color: var(--pm-text-heading);
   font-size: 16px;
   line-height: 1.25;
   font-weight: 700;
@@ -225,5 +225,5 @@
   margin-top: 3px;
   font-size: 13px;
   line-height: 1.25;
-  color: #8a93b2;
+  color: var(--pm-text-muted);
 }

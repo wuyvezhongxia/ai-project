@@ -27,7 +27,7 @@
   right: calc(var(--dashboard-shell-padding) * -1);
   bottom: -10px;
   left: calc(var(--dashboard-shell-padding) * -1);
-  border-bottom: 1px solid rgba(100, 118, 191, 0.14);
+  border-bottom: 1px solid var(--pm-border-row);
 }
 
 .dashboard-header-main {
@@ -42,12 +42,12 @@
   margin: 0 0 8px;
   font-size: 34px;
   font-weight: 700;
-  color: #f7f8ff;
+  color: var(--pm-text-heading);
 }
 
 .dashboard-header p {
   margin: 0;
-  color: #747d9f;
+  color: var(--pm-text-muted);
   font-size: 13px;
 }
 
@@ -57,24 +57,24 @@
 
 .dashboard-search.ant-input-affix-wrapper {
   height: 36px;
-  border-color: rgba(93, 114, 196, 0.24) !important;
+  border-color: var(--pm-border-field) !important;
   border-radius: 10px;
-  color: #dfe7ff;
-  background: rgba(19, 24, 40, 0.92) !important;
+  color: var(--pm-text-body);
+  background: var(--pm-bg-field) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .dashboard-search.ant-input-affix-wrapper .ant-input {
-  color: #e8edff;
+  color: var(--pm-text-primary);
   background: transparent;
 }
 
 .dashboard-header-actions .ghost-button {
   width: 36px;
   height: 36px;
-  border-color: rgba(118, 134, 192, 0.22) !important;
-  color: #f3cf64 !important;
-  background: rgba(25, 31, 50, 0.96) !important;
+  border-color: var(--pm-border-field) !important;
+  color: var(--pm-text-primary) !important;
+  background: var(--pm-bg-button-soft) !important;
 }
 
 .dashboard-header-actions .ant-btn-primary {
@@ -84,6 +84,11 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
-  background: linear-gradient(135deg, #5977ff, #6283ff) !important;
+  background: var(--pm-gradient-primary) !important;
   box-shadow: 0 12px 24px rgba(72, 100, 222, 0.28);
+}
+
+.theme-toggle-button {
+  width: auto !important;
+  min-width: 88px;
 }

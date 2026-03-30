@@ -6,7 +6,7 @@
 
 .drawer-path,
 .drawer-summary {
-  color: #8088a7;
+  color: var(--pm-text-muted);
   font-size: 13px;
 }
 
@@ -14,7 +14,7 @@
   font-size: 30px;
   line-height: 1.2;
   font-weight: 700;
-  color: #f7f8ff;
+  color: var(--pm-text-heading);
 }
 
 .drawer-title-input {
@@ -26,11 +26,11 @@
   font-size: 30px;
   line-height: 1.2;
   font-weight: 700;
-  color: #f7f8ff;
+  color: var(--pm-text-heading);
 }
 
 .drawer-title-input .ant-input::placeholder {
-  color: rgba(247, 248, 255, 0.45);
+  color: color-mix(in srgb, var(--pm-text-heading) 45%, transparent);
 }
 
 .detail-layout {
@@ -55,7 +55,7 @@
 .section-title {
   font-size: 16px;
   font-weight: 600;
-  color: #f5f7ff;
+  color: var(--pm-text-heading);
 }
 
 .rich-card,
@@ -64,12 +64,12 @@
   padding: 18px;
   border: 1px solid var(--pm-border-card);
   border-radius: 18px;
-  background: rgba(24, 28, 42, 0.92);
+  background: var(--pm-bg-card-soft);
 }
 
 .rich-card ol {
   padding-left: 20px;
-  color: #dce1f6;
+  color: var(--pm-text-body);
 }
 
 .detail-description-input {
@@ -78,14 +78,14 @@
 
 .detail-description-input.ant-input,
 .detail-description-input .ant-input {
-  color: #dce1f6;
-  background: rgba(255, 255, 255, 0.03);
+  color: var(--pm-text-body);
+  background: var(--pm-bg-field-soft);
   border-color: var(--pm-border-field);
 }
 
 .detail-description-input.ant-input::placeholder,
 .detail-description-input .ant-input::placeholder {
-  color: rgba(220, 225, 246, 0.45);
+  color: color-mix(in srgb, var(--pm-text-body) 45%, transparent);
 }
 
 .description-status {
@@ -95,7 +95,7 @@
 
 .description-status-idle,
 .description-status-editing {
-  color: #838cab;
+  color: var(--pm-text-muted);
 }
 
 .description-status-saving {
@@ -120,11 +120,11 @@
 }
 
 .pending-icon {
-  color: #8d96b8;
+  color: var(--pm-text-muted);
 }
 
 .subtask-done {
-  color: #727b99;
+  color: var(--pm-text-faint);
   text-decoration: line-through;
 }
 
@@ -136,7 +136,7 @@
 
 .attachment-card {
   border-radius: 16px !important;
-  background: rgba(28, 34, 50, 0.88) !important;
+  background: var(--pm-bg-card-strong) !important;
 }
 
 .comment-panel {
@@ -160,17 +160,17 @@
 }
 
 .comment-user-name {
-  color: #f2f5ff;
+  color: var(--pm-text-heading);
   font-weight: 600;
 }
 
 .comment-time {
-  color: #7f87a7;
+  color: var(--pm-text-muted);
   font-size: 12px;
 }
 
 .comment-content {
-  color: #dce1f6;
+  color: var(--pm-text-body);
   line-height: 1.7;
   white-space: pre-wrap;
 }
@@ -193,14 +193,14 @@
 
 .comment-composer-input.ant-input {
   height: 44px;
-  color: #dce1f6;
-  background: rgba(24, 28, 42, 0.92);
+  color: var(--pm-text-body);
+  background: var(--pm-bg-card-soft);
   border-color: var(--pm-border-field);
   border-radius: 14px;
 }
 
 .comment-composer-input.ant-input::placeholder {
-  color: rgba(220, 225, 246, 0.4);
+  color: color-mix(in srgb, var(--pm-text-body) 40%, transparent);
 }
 
 .comment-composer-submit {
@@ -215,7 +215,7 @@
   gap: 12px;
   align-items: center;
   padding: 12px 0;
-  color: #dfe4fb;
+  color: var(--pm-text-body);
   border-bottom: 1px solid var(--pm-border-card);
 }
 
@@ -253,7 +253,7 @@
 .timeline-scale {
   display: flex;
   justify-content: space-between;
-  color: #7f87a7;
+  color: var(--pm-text-muted);
 }
 
 .timeline-header {

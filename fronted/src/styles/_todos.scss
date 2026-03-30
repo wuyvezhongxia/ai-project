@@ -27,7 +27,7 @@
 
 .todo-list-header {
   padding: 0 4px 14px;
-  color: #7e87a7;
+  color: var(--pm-text-muted);
   font-size: 13px;
   border-bottom: 1px solid var(--pm-border-row);
 }
@@ -43,7 +43,7 @@
 }
 
 .todo-list-row-clickable:hover {
-  background: rgba(79, 98, 175, 0.08);
+  background: var(--pm-bg-hover-soft);
 }
 
 .todo-list-row:last-child {
@@ -75,7 +75,7 @@
 
 .todo-row-title {
   margin-bottom: 6px;
-  color: #f7f8ff;
+  color: var(--pm-text-heading);
   font-weight: 600;
 }
 
@@ -84,7 +84,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-  color: #afb6d2;
+  color: var(--pm-text-secondary);
   font-size: 13px;
 }
 
@@ -103,5 +103,5 @@
 }
 
 .todo-pagination .ant-pagination {
-  color: #c8d0ef;
+  color: var(--pm-text-body);
 }

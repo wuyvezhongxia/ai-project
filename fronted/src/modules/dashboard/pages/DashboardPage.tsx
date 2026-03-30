@@ -91,7 +91,7 @@ function DashboardPage() {
               percent={card.value.includes('%') ? Number.parseInt(card.value, 10) : Math.min(Number(card.value) * 10, 100)}
               showInfo={false}
               strokeColor={card.accent}
-              trailColor="rgba(255,255,255,0.06)"
+              trailColor="var(--pm-chart-trail)"
             />
             {trendMeta ? (
               <div className="stat-card-footer stat-card-footer-trend">
