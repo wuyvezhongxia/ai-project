@@ -104,6 +104,7 @@ export const riskTasks: RiskTask[] = [
     priority: 'P1',
     risk: '进度滞后',
     dueText: '3 月 2 日',
+    owner: '张小明',
   },
   {
     id: 'RISK-002',
@@ -112,6 +113,7 @@ export const riskTasks: RiskTask[] = [
     priority: 'P1',
     risk: '延期 1 天',
     dueText: '3 月 3 日',
+    owner: '王芳',
   },
   {
     id: 'RISK-003',
@@ -120,6 +122,7 @@ export const riskTasks: RiskTask[] = [
     priority: 'P2',
     risk: '风险预警',
     dueText: '3 月 5 日',
+    owner: '赵丽',
   },
 ]
 
@@ -146,14 +149,44 @@ export const memberLoads = [
 ] as const
 
 export const detailSubtasks: Subtask[] = [
-  { id: 'S-1', title: '梳理用户核心使用场景（5 个）', done: true, owner: '张小明' },
-  { id: 'S-2', title: '输出功能边界定义文档', done: true, owner: '张小明' },
+  {
+    id: 'S-1',
+    title: '梳理用户核心使用场景（5 个）',
+    done: true,
+    rawStatus: '1',
+    statusLabel: '已完成',
+    priority: '1',
+    priorityLabel: '中',
+    plannedStartAt: null,
+    plannedDueAt: null,
+    finishAt: null,
+    creatorName: '张小明',
+  },
+  {
+    id: 'S-2',
+    title: '输出功能边界定义文档',
+    done: true,
+    rawStatus: '1',
+    statusLabel: '已完成',
+    priority: '1',
+    priorityLabel: '中',
+    plannedStartAt: null,
+    plannedDueAt: null,
+    finishAt: null,
+    creatorName: '张小明',
+  },
   {
     id: 'S-3',
     title: '完成交互流程图并提交评审',
     done: false,
-    owner: '张小明',
-    status: '进行中',
+    rawStatus: '0',
+    statusLabel: '待处理',
+    priority: '1',
+    priorityLabel: '中',
+    plannedStartAt: null,
+    plannedDueAt: null,
+    finishAt: null,
+    creatorName: '张小明',
   },
 ]
 

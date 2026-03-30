@@ -122,7 +122,7 @@ function ProjectsPage() {
       .filter((task) => task.dueCategory === 'today' || ['2', '3'].includes(task.riskLevel ?? '0'))
       .map((task) => ({
         ...task,
-        assignee: task.owner.slice(0, 1),
+        assignee: getAvatarLabel(task.owner),
       }))
 
     const riskColumn: BoardColumn = {
@@ -424,7 +424,7 @@ function ProjectsPage() {
                           <div className="board-task-footer">
                             <span>{task.owner}</span>
                             <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
-                              {task.assignee || getAvatarLabel(task.owner)}
+                              {getAvatarLabel(task.owner)}
                             </Avatar>
                           </div>
                         </button>

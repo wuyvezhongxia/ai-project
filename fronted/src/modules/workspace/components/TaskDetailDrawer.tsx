@@ -1,17 +1,7 @@
-import {
-  CalendarOutlined,
-  CheckCircleFilled,
-  ClockCircleOutlined,
-  CopyOutlined,
-  EditOutlined,
-  EllipsisOutlined,
-  LinkOutlined,
-  PlusOutlined,
-  StarOutlined,
-  UserOutlined,
-} from '@ant-design/icons'
+import { CalendarOutlined, EditOutlined, PlusOutlined, UserOutlined } from '@ant-design/icons'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   Alert,
   Avatar,
@@ -22,25 +12,30 @@ import {
   Flex,
   Input,
   List,
+  Mentions,
   Progress,
   Select,
   Space,
   Spin,
+  Table,
   Tabs,
   Tag,
   message,
 } from 'antd'
 import { useWorkspaceStore } from '../store/workspace-store'
-import { getPriorityColor, getStatusColor } from '../utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../utils/avatar'
 import {
   useProjectOptionsQuery,
-  useAuthContextQuery,
+  useCreateSubtaskMutation,
   useCreateTaskCommentMutation,
   useTaskDetailQuery,
+  useUpdateSubtaskMutation,
   useUpdateTaskMutation,
   useUserOptionsQuery,
 } from '../services/workspace.queries'
+import { ApiClientError } from '../../../lib/http/api-client'
+import type { UpdateSubtaskPayload } from '../services/workspace.api'
+import type { Subtask } from '../types'
 
 const statusOptions = [
   { label: '待开始', value: '待开始' },
@@ -68,34 +63,72 @@ const priorityValueMap: Record<(typeof priorityOptions)[number]['value'], '0' | 
   P3: '0',
 }
 
+const subtaskTableStatusOptions = [
+  { label: '待处理', value: '0' as const },
+  { label: '已完成', value: '1' as const },
+  { label: '已取消', value: '2' as const },
+]
+
+const subtaskTablePriorityOptions = [
+  { label: '低', value: '0' as const },
+  { label: '中', value: '1' as const },
+  { label: '高', value: '2' as const },
+  { label: '紧急', value: '3' as const },
+]
+
+type MentionCandidate = {
+  id: string
+  name: string
+  hint: string
+}
+
+type UserSelectOption = {
+  value: string
+  plainLabel: string
+  label: ReactNode
+}
+
+/** 抽屉 + 横向滚动表格内，弹层挂到 body，避免被 overflow / transform 截断或点不到 */
+const subtaskControlPopupContainer = () => document.body
+
+const subtaskSelectPopupStyles: { popup: { root: CSSProperties } } = {
+  popup: { root: { zIndex: 1100 } },
+}
+
 function TaskDetailDrawer() {
   const detailOpen = useWorkspaceStore((state) => state.detailOpen)
   const closeTaskDetail = useWorkspaceStore((state) => state.closeTaskDetail)
   const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
   const { data: selectedTask, isLoading } = useTaskDetailQuery(selectedTaskId)
-  const { data: authContext } = useAuthContextQuery()
   const { data: projectOptions = [] } = useProjectOptionsQuery()
   const { data: userOptions = [] } = useUserOptionsQuery()
   const updateTaskMutation = useUpdateTaskMutation()
+  const createSubtaskMutation = useCreateSubtaskMutation()
+  const updateSubtaskMutation = useUpdateSubtaskMutation()
   const createTaskCommentMutation = useCreateTaskCommentMutation()
   const [draftTitle, setDraftTitle] = useState('')
   const [draftDescription, setDraftDescription] = useState('')
   const [draftComment, setDraftComment] = useState('')
+  const [activeTabKey, setActiveTabKey] = useState('detail')
   const [descriptionState, setDescriptionState] = useState<'idle' | 'editing' | 'saving' | 'saved' | 'error'>('idle')
   const [editingProject, setEditingProject] = useState(false)
   const [editingCollaborators, setEditingCollaborators] = useState(false)
+  const collaboratorFieldRef = useRef<HTMLDivElement>(null)
   const [subtaskComposerOpen, setSubtaskComposerOpen] = useState(false)
   const [draftSubtaskTitle, setDraftSubtaskTitle] = useState('')
+  const [activeSubtaskId, setActiveSubtaskId] = useState<string | null>(null)
 
   useEffect(() => {
     setDraftTitle(selectedTask?.title ?? '')
     setDraftDescription(selectedTask?.description ?? '')
     setDraftComment('')
+    setActiveTabKey('detail')
     setDescriptionState('idle')
     setEditingProject(false)
     setEditingCollaborators(false)
     setSubtaskComposerOpen(false)
     setDraftSubtaskTitle('')
+    setActiveSubtaskId(null)
   }, [selectedTask?.description, selectedTask?.id, selectedTask?.title])
 
   useEffect(() => {
@@ -107,6 +140,21 @@ function TaskDetailDrawer() {
 
     return () => window.clearTimeout(timer)
   }, [descriptionState])
+
+  useEffect(() => {
+    if (!editingCollaborators) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (collaboratorFieldRef.current?.contains(target)) return
+      if (target.closest('.collaborator-select-dropdown')) return
+      setEditingCollaborators(false)
+    }
+
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [editingCollaborators])
 
   if (!selectedTask) {
     return (
@@ -126,10 +174,74 @@ function TaskDetailDrawer() {
   const collaboratorIds = (selectedTask.collaborators?.map((user) => user.userId) ?? []).filter(
     (userId) => !excludedCollaboratorIds.has(userId),
   )
-  const collaboratorOptions = userOptions.filter((user) => !excludedCollaboratorIds.has(user.value))
-  const currentCommentUserName = authContext?.nickName ?? authContext?.userName ?? '我'
   const editableStatusValue =
     selectedTask.rawStatus === '2' ? '已完成' : selectedTask.rawStatus === '0' ? '待开始' : '进行中'
+  const mentionCandidateMap = new Map<string, MentionCandidate>()
+
+  const registerMentionCandidate = (candidate?: Partial<MentionCandidate>) => {
+    if (!candidate?.id || !candidate.name || mentionCandidateMap.has(candidate.id)) return
+
+    mentionCandidateMap.set(candidate.id, {
+      id: candidate.id,
+      name: candidate.name,
+      hint: candidate.hint ?? '组织成员',
+    })
+  }
+
+  registerMentionCandidate({
+    id: selectedTask.ownerId,
+    name: selectedTask.owner,
+    hint: '负责人',
+  })
+  registerMentionCandidate({
+    id: selectedTask.creatorId,
+    name: selectedTask.creatorName,
+    hint: '创建人',
+  })
+  selectedTask.collaborators?.forEach((user) => {
+    registerMentionCandidate({
+      id: user.userId,
+      name: user.nickName,
+      hint: '协作人',
+    })
+  })
+  userOptions.forEach((user) => {
+    registerMentionCandidate({
+      id: user.value,
+      name: user.label,
+      hint: '组织成员',
+    })
+  })
+
+  const mentionOptions = Array.from(mentionCandidateMap.values()).map((user) => ({
+    key: user.id,
+    value: user.name,
+    label: (
+      <div className="comment-mention-option">
+        <Avatar size={28} style={getAvatarStyle(getAvatarSeed(user.id, user.name))}>
+          {getAvatarLabel(user.name)}
+        </Avatar>
+        <div className="comment-mention-meta">
+          <span className="comment-mention-name">{user.name}</span>
+          <span className="comment-mention-hint">{user.hint}</span>
+        </div>
+      </div>
+    ),
+  }))
+  const userSelectOptions: UserSelectOption[] = userOptions.map((user) => ({
+    value: user.value,
+    plainLabel: user.label,
+    label: (
+      <div className="user-select-option">
+        <Avatar size={24} style={getAvatarStyle(getAvatarSeed(user.value, user.label))}>
+          {getAvatarLabel(user.label)}
+        </Avatar>
+        <span className="user-select-option-name">{user.label}</span>
+      </div>
+    ),
+  }))
+  const collaboratorOptions = userSelectOptions.filter((user) => !excludedCollaboratorIds.has(user.value))
+
   const commentsContent = selectedTask.comments.length ? (
     <List
       dataSource={selectedTask.comments}
@@ -210,6 +322,7 @@ function TaskDetailDrawer() {
         payload: { content },
       })
       setDraftComment('')
+      setActiveTabKey('comments')
       message.success('评论已发布')
     } catch {
       message.error('评论发布失败，请稍后重试')
@@ -221,14 +334,188 @@ function TaskDetailDrawer() {
     setDraftSubtaskTitle('')
   }
 
-  const handleSubtaskComposerSubmit = () => {
-    if (!draftSubtaskTitle.trim()) {
+  const handleSubtaskComposerSubmit = async () => {
+    const nextTitle = draftSubtaskTitle.trim()
+
+    if (!nextTitle) {
       message.warning('请输入子项标题')
       return
     }
 
-    message.info('子项创建接口待接入，当前先保留交互样式')
+    try {
+      await createSubtaskMutation.mutateAsync({
+        taskId: selectedTask.id,
+        payload: { subtaskName: nextTitle },
+      })
+      setDraftSubtaskTitle('')
+      setSubtaskComposerOpen(false)
+      message.success('子项已创建')
+    } catch {
+      message.error('子项创建失败，请稍后重试')
+    }
   }
+
+  const patchSubtask = async (subtaskId: string, payload: UpdateSubtaskPayload) => {
+    setActiveSubtaskId(subtaskId)
+
+    try {
+      await updateSubtaskMutation.mutateAsync({
+        taskId: selectedTask.id,
+        subtaskId,
+        payload,
+      })
+      if (payload.status === '2') {
+        message.success('子项已取消')
+      }
+    } catch (err) {
+      const detail =
+        err instanceof ApiClientError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : '未知错误'
+      message.error(`子项更新失败：${detail}`)
+    } finally {
+      setActiveSubtaskId((current) => (current === subtaskId ? null : current))
+    }
+  }
+
+  const subtaskDateCell = (
+    record: Subtask,
+    payloadKey: 'plannedStartTime' | 'plannedDueTime',
+    value: string | null | undefined,
+  ) => {
+    const busy = updateSubtaskMutation.isPending && activeSubtaskId === record.id
+    const dayValue = value ? dayjs(value) : null
+    return (
+      <DatePicker
+        showTime
+        size="small"
+        allowClear
+        placeholder="--"
+        className={`subtask-table-date${dayValue ? '' : ' subtask-table-date-empty'}`}
+        disabled={busy}
+        value={dayValue}
+        getPopupContainer={subtaskControlPopupContainer}
+        popupStyle={{ zIndex: 1100 }}
+        onChange={(next) => void patchSubtask(record.id, { [payloadKey]: next ? next.toISOString() : null })}
+      />
+    )
+  }
+
+  const subtaskColumns: ColumnsType<Subtask> = [
+    {
+      title: '标题',
+      dataIndex: 'title',
+      key: 'title',
+      width: 200,
+      fixed: 'left',
+      ellipsis: { showTitle: false },
+      render: (text, record) => <span className={record.done ? 'subtask-done' : ''}>{text}</span>,
+    },
+    {
+      title: '状态',
+      key: 'status',
+      width: 112,
+      fixed: 'left',
+      render: (_, record) => {
+        const busy = updateSubtaskMutation.isPending && activeSubtaskId === record.id
+        return (
+          <Select
+            size="small"
+            className="subtask-table-select"
+            value={record.rawStatus}
+            options={subtaskTableStatusOptions}
+            disabled={busy}
+            getPopupContainer={subtaskControlPopupContainer}
+            styles={subtaskSelectPopupStyles}
+            onChange={(v) => void patchSubtask(record.id, { status: v as '0' | '1' | '2' })}
+          />
+        )
+      },
+    },
+    {
+      title: '优先级',
+      key: 'priority',
+      width: 100,
+      fixed: 'left',
+      render: (_, record) => {
+        const busy = updateSubtaskMutation.isPending && activeSubtaskId === record.id
+        return (
+          <Select
+            size="small"
+            className="subtask-table-select"
+            value={record.priority}
+            options={subtaskTablePriorityOptions}
+            disabled={busy}
+            getPopupContainer={subtaskControlPopupContainer}
+            styles={subtaskSelectPopupStyles}
+            onChange={(v) => void patchSubtask(record.id, { priority: v as Subtask['priority'] })}
+          />
+        )
+      },
+    },
+    {
+      title: '创建人',
+      key: 'creator',
+      width: 132,
+      fixed: 'left',
+      render: (_, record) => (
+        <Space size={8}>
+          <Avatar size={28} style={getAvatarStyle(getAvatarSeed(record.creatorId, record.creatorName))}>
+            {getAvatarLabel(record.creatorName)}
+          </Avatar>
+          <span className="subtask-creator-name">{record.creatorName}</span>
+        </Space>
+      ),
+    },
+    {
+      title: '计划开始时间',
+      key: 'plannedStart',
+      width: 168,
+      render: (_, record) => subtaskDateCell(record, 'plannedStartTime', record.plannedStartAt ?? null),
+    },
+    {
+      title: '计划完成时间',
+      key: 'plannedDue',
+      width: 168,
+      render: (_, record) => subtaskDateCell(record, 'plannedDueTime', record.plannedDueAt ?? null),
+    },
+  ]
+
+  const commentComposer = (
+    <div className="comment-composer">
+      <Mentions
+        value={draftComment}
+        className="comment-composer-input"
+        autoSize={{ minRows: 1, maxRows: 4 }}
+        prefix={['@']}
+        placement="top"
+        options={mentionOptions}
+        notFoundContent="未找到匹配成员"
+        popupClassName="comment-mentions-dropdown"
+        placeholder="发表评论，支持 @ 成员..."
+        filterOption={(input, option) => {
+          const current = String(option?.value ?? '').toLowerCase()
+          return current.includes(input.toLowerCase())
+        }}
+        onChange={(value) => setDraftComment(value)}
+        onPressEnter={(event) => {
+          if (event.shiftKey) return
+          event.preventDefault()
+          void handleCommentSubmit()
+        }}
+      />
+      <Button
+        type="primary"
+        className="comment-composer-submit"
+        loading={createTaskCommentMutation.isPending}
+        onClick={() => void handleCommentSubmit()}
+      >
+        发送
+      </Button>
+    </div>
+  )
 
   return (
     <Drawer
@@ -239,50 +526,51 @@ function TaskDetailDrawer() {
       className="task-detail-drawer"
       closeIcon={null}
       title={
-        <div className="drawer-title-block">
-          <Space className="drawer-path" size={8}>
-            <span>{selectedTask.id}</span>
-            <span>•</span>
-            <span>{selectedTask.project}</span>
-          </Space>
-          <Space wrap>
-            <Tag color={getPriorityColor(selectedTask.priority)}>{selectedTask.priority} 优先</Tag>
-            <Tag color={getStatusColor(selectedTask.status)}>{selectedTask.status}</Tag>
-          </Space>
-          <Input
-            value={draftTitle}
-            size="large"
-            variant="borderless"
-            className="drawer-title-input"
-            onChange={(event) => setDraftTitle(event.target.value)}
-            onBlur={() => void handleTitleCommit()}
-            onPressEnter={() => void handleTitleCommit()}
-          />
-          <Space wrap className="drawer-summary">
-            <span>
-              <CalendarOutlined /> 截止 {selectedTask.dueText}
-            </span>
-            {selectedTask.dueCategory === 'today' ? <Tag color="error">今天到期</Tag> : null}
-            {selectedTask.dueCategory === 'overdue' ? <Tag color="warning">已延期</Tag> : null}
-            <span>
-              <UserOutlined /> 负责人 {selectedTask.owner}
-            </span>
-          </Space>
-        </div>
-      }
-      extra={
-        <Space>
-          <Button className="ghost-button" icon={<EllipsisOutlined />} />
-          <Button className="ghost-button" icon={<StarOutlined />} />
-          <Button type="primary" onClick={closeTaskDetail}>
+        <div className="drawer-header-shell">
+          <div className="drawer-title-block">
+            <div className="drawer-title-main">
+              <Input
+                value={draftTitle}
+                size="large"
+                variant="borderless"
+                className="drawer-title-input"
+                onChange={(event) => setDraftTitle(event.target.value)}
+                onBlur={() => void handleTitleCommit()}
+                onPressEnter={() => void handleTitleCommit()}
+              />
+            </div>
+            <Space wrap className="drawer-summary">
+              <span>
+                <CalendarOutlined /> 截止 {selectedTask.dueText}
+              </span>
+              {selectedTask.dueCategory === 'today' ? <Tag color="error">今天到期</Tag> : null}
+              {selectedTask.dueCategory === 'overdue' ? <Tag color="warning">已延期</Tag> : null}
+              <span className="drawer-owner-summary">
+                <UserOutlined />
+                <span>负责人</span>
+                <span title={selectedTask.owner || undefined}>
+                  <Avatar
+                    size="small"
+                    style={getAvatarStyle(getAvatarSeed(selectedTask.ownerId, selectedTask.owner))}
+                  >
+                    {getAvatarLabel(selectedTask.owner)}
+                  </Avatar>
+                </span>
+              </span>
+            </Space>
+          </div>
+          <Button type="primary" className="drawer-close-button" onClick={closeTaskDetail}>
             关闭
           </Button>
-        </Space>
+        </div>
       }
     >
-      <Tabs
-        defaultActiveKey="detail"
-        items={[
+      <div className="drawer-content-shell">
+        <div className="drawer-tabs-shell">
+          <Tabs
+            activeKey={activeTabKey}
+            onChange={setActiveTabKey}
+            items={[
           {
             key: 'detail',
             label: '详情',
@@ -291,7 +579,7 @@ function TaskDetailDrawer() {
                 <div className="detail-main">
                   <section className="detail-section">
                     <div className="section-title">任务描述</div>
-                    <div className="rich-card">
+                    <div className="rich-card detail-description-card">
                       <Input.TextArea
                         value={draftDescription}
                         autoSize={{ minRows: 4, maxRows: 10 }}
@@ -313,43 +601,34 @@ function TaskDetailDrawer() {
                     </div>
                   </section>
 
-                  <section className="detail-section">
+                  <section className="detail-section subtask-section">
                     <Flex justify="space-between" align="center" className="detail-section-heading">
                       <div className="section-title">子任务进度</div>
                       <div className="progress-summary">
                         {completedSubtasks} / {selectedTask.subtasks.length} · {subtaskPercent}%
                       </div>
                     </Flex>
-                    <div className="subtask-progress-card">
-                      <Progress
-                        percent={subtaskPercent}
-                        showInfo={false}
-                        strokeColor="#20d6a7"
-                        trailColor="var(--pm-chart-trail)"
-                      />
-                    </div>
+                    <Progress
+                      percent={subtaskPercent}
+                      showInfo={false}
+                      strokeColor="#1677ff"
+                      trailColor="#f0f0f0"
+                      className="subtask-progress"
+                    />
                     <div className="rich-card subtask-card">
-                      <List
-                        className="subtask-list"
-                        dataSource={selectedTask.subtasks}
-                        locale={{ emptyText: <div className="subtask-empty">暂无子项</div> }}
-                        renderItem={(item) => (
-                          <List.Item className="subtask-row">
-                            <Space size={10}>
-                              {item.done ? (
-                                <CheckCircleFilled className="success-icon" />
-                              ) : (
-                                <ClockCircleOutlined className="pending-icon" />
-                              )}
-                              <span className={item.done ? 'subtask-done' : ''}>{item.title}</span>
-                            </Space>
-                            <Space size={10} className="subtask-row-meta">
-                              <span className="muted-text">{item.owner || '未分配'}</span>
-                              {item.status ? <Tag color="processing">{item.status}</Tag> : null}
-                            </Space>
-                          </List.Item>
-                        )}
-                      />
+                      <div className="subtask-table-wrap">
+                        <Table<Subtask>
+                          className="subtask-table"
+                          size="small"
+                          rowKey="id"
+                          pagination={false}
+                          dataSource={selectedTask.subtasks}
+                          columns={subtaskColumns}
+                          scroll={{ x: 984 }}
+                          rowClassName={(_, index) => (index % 2 === 1 ? 'subtask-row-alt' : '')}
+                          locale={{ emptyText: <div className="subtask-empty">暂无子项</div> }}
+                        />
+                      </div>
                       {subtaskComposerOpen ? (
                         <div className="subtask-creator">
                           <div className="subtask-creator-input-row">
@@ -361,27 +640,28 @@ function TaskDetailDrawer() {
                               placeholder="新建子项"
                               autoFocus
                               onChange={(event) => setDraftSubtaskTitle(event.target.value)}
-                              onPressEnter={() => handleSubtaskComposerSubmit()}
+                              onPressEnter={() => void handleSubtaskComposerSubmit()}
                             />
                             <Space size={12} className="subtask-creator-actions">
-                              <Button type="text" onClick={handleSubtaskComposerCancel}>
+                              <Button type="text" disabled={createSubtaskMutation.isPending} onClick={handleSubtaskComposerCancel}>
                                 取消
                               </Button>
                               <Button
                                 type="text"
                                 className="subtask-creator-submit"
                                 disabled={!draftSubtaskTitle.trim()}
-                                onClick={handleSubtaskComposerSubmit}
+                                loading={createSubtaskMutation.isPending}
+                                onClick={() => void handleSubtaskComposerSubmit()}
                               >
                                 新建
                               </Button>
                             </Space>
                           </div>
-                          <Space wrap size={[8, 8]} className="subtask-creator-meta">
-                            <Tag bordered={false}>归属项目：{selectedTask.project}</Tag>
-                            <Tag bordered={false}>优先级：{selectedTask.priority}</Tag>
-                            <Tag bordered={false}>负责人：{selectedTask.owner || '未分配'}</Tag>
-                          </Space>
+                          <div className="subtask-creator-meta">
+                            <span>归属项目：{selectedTask.project}</span>
+                            <span>优先级：{selectedTask.priority}</span>
+                            <span>负责人：{selectedTask.owner || '未分配'}</span>
+                          </div>
                         </div>
                       ) : (
                         <Button
@@ -396,39 +676,6 @@ function TaskDetailDrawer() {
                     </div>
                   </section>
 
-                  <section className="detail-section">
-                    <Flex justify="space-between" align="center">
-                      <div className="section-title">最新评论</div>
-                      <Tag bordered={false} className="section-count-tag">
-                        {selectedTask.comments.length}
-                      </Tag>
-                    </Flex>
-                    <div className="rich-card comment-panel">{commentsContent}</div>
-                    <div className="comment-composer">
-                      <Avatar className="comment-composer-avatar" style={getAvatarStyle(getAvatarSeed(currentCommentUserName))}>
-                        {getAvatarLabel(currentCommentUserName)}
-                      </Avatar>
-                      <Input
-                        value={draftComment}
-                        className="comment-composer-input"
-                        placeholder="发表评论，支持 @ 成员..."
-                        onChange={(event) => setDraftComment(event.target.value)}
-                        onPressEnter={(event) => {
-                          if (event.shiftKey) return
-                          event.preventDefault()
-                          void handleCommentSubmit()
-                        }}
-                      />
-                      <Button
-                        type="primary"
-                        className="comment-composer-submit"
-                        loading={createTaskCommentMutation.isPending}
-                        onClick={() => void handleCommentSubmit()}
-                      >
-                        发送
-                      </Button>
-                    </div>
-                  </section>
                 </div>
 
                 <div className="detail-side">
@@ -495,8 +742,10 @@ function TaskDetailDrawer() {
                           size="small"
                           className="info-row-select"
                           value={selectedTask.ownerId}
-                          options={userOptions}
+                          options={userSelectOptions}
+                          optionFilterProp="plainLabel"
                           placeholder="选择负责人"
+                          popupClassName="user-select-dropdown"
                           onChange={(value) => void handleTaskUpdate({ assigneeUserId: value })}
                         />
                       </div>
@@ -511,23 +760,32 @@ function TaskDetailDrawer() {
                       </div>
                       <div className="info-row">
                         <span>协作人</span>
-                        <div className="info-row-content collaborator-field">
-                          {selectedTask.collaborators?.length ? (
-                            <Space wrap>
-                              {selectedTask.collaborators.map((user) => (
-                                <Tag key={user.userId}>{user.nickName}</Tag>
+                        <div ref={collaboratorFieldRef} className="info-row-content collaborator-field">
+                          <div className="collaborator-inline-row">
+                            <div className="collaborator-avatar-stack">
+                              {selectedTask.collaborators?.map((user, index) => (
+                                <span key={user.userId} title={user.nickName}>
+                                  <Avatar
+                                    size="small"
+                                    className="collaborator-avatar-item"
+                                    style={{
+                                      ...getAvatarStyle(getAvatarSeed(user.userId, user.nickName)),
+                                      zIndex: index + 1,
+                                    }}
+                                  >
+                                    {getAvatarLabel(user.nickName)}
+                                  </Avatar>
+                                </span>
                               ))}
-                            </Space>
-                          ) : (
-                            <span className="muted-text">暂无</span>
-                          )}
-                          <Button
-                            type="text"
-                            size="small"
-                            className="drawer-mini-action"
-                            icon={<PlusOutlined />}
-                            onClick={() => setEditingCollaborators((value) => !value)}
-                          />
+                            </div>
+                            <Button
+                              type="text"
+                              size="small"
+                              className="drawer-mini-action collaborator-add-btn"
+                              icon={<PlusOutlined />}
+                              onClick={() => setEditingCollaborators((value) => !value)}
+                            />
+                          </div>
                           {editingCollaborators ? (
                             <Select
                               mode="multiple"
@@ -535,7 +793,9 @@ function TaskDetailDrawer() {
                               className="collaborator-select"
                               value={collaboratorIds}
                               options={collaboratorOptions}
+                              optionFilterProp="plainLabel"
                               placeholder="选择协作人"
+                              popupClassName="user-select-dropdown collaborator-select-dropdown"
                               onChange={(value) =>
                                 void handleTaskUpdate({
                                   collaboratorUserIds: (value as string[]).filter(
@@ -547,12 +807,6 @@ function TaskDetailDrawer() {
                           ) : null}
                         </div>
                       </div>
-                    </div>
-                  </section>
-
-                  <section className="detail-section">
-                    <div className="section-title">时间信息</div>
-                    <div className="side-panel">
                       <div className="info-row">
                         <span>开始时间</span>
                         <DatePicker
@@ -581,23 +835,6 @@ function TaskDetailDrawer() {
                           }}
                         />
                       </div>
-                      <div className="info-row">
-                        <span>任务进度</span>
-                        <span>{selectedTask.progress ?? 0}%</span>
-                      </div>
-                      <div className="timeline-card">
-                        <div className="timeline-header">
-                          <span>时间进度</span>
-                          <span className={selectedTask.dueCategory === 'overdue' ? 'danger-text' : ''}>
-                            {selectedTask.dueText}
-                          </span>
-                        </div>
-                        <Progress percent={selectedTask.progress ?? 0} showInfo={false} strokeColor="#ff7b88" />
-                        <div className="timeline-scale">
-                          <span>{selectedTask.startAt || '--'}</span>
-                          <span>{selectedTask.dueAt || '--'}</span>
-                        </div>
-                      </div>
                     </div>
                   </section>
 
@@ -622,7 +859,7 @@ function TaskDetailDrawer() {
                 <Tag bordered={false}>{selectedTask.comments.length}</Tag>
               </Space>
             ),
-            children: commentsContent,
+            children: <div className="comments-tab-pane">{commentsContent}</div>,
           },
           {
             key: 'logs',
@@ -635,7 +872,7 @@ function TaskDetailDrawer() {
                     <List.Item.Meta
                       avatar={<Avatar style={getAvatarStyle(getAvatarSeed(item.userName))}>{getAvatarLabel(item.userName)}</Avatar>}
                       title={`${item.userName} · ${item.createTime}`}
-                      description={`${item.actionType} · ${item.actionContent}`}
+                      description={item.actionContent}
                     />
                   </List.Item>
                 )}
@@ -645,42 +882,15 @@ function TaskDetailDrawer() {
             ),
           },
           {
-            key: 'relations',
-            label: '关联内容',
-            children: selectedTask.relations.length ? (
-              <List
-                dataSource={selectedTask.relations}
-                renderItem={(item) => (
-                  <List.Item>
-                    <Space>
-                      {item.relationType === 'url' ? <LinkOutlined /> : <CopyOutlined />}
-                      <span>{item.relationType}</span>
-                      <span>{item.targetTitle}</span>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <div className="tab-placeholder">暂无关联内容</div>
-            ),
-          },
-          {
-            key: 'subtasks',
-            label: (
-              <Space size={6}>
-                子任务
-                <Tag bordered={false}>{selectedTask.subtasks.length}</Tag>
-              </Space>
-            ),
-            children: <div className="tab-placeholder">子任务列表已在详情页主视图中展示。</div>,
-          },
-          {
             key: 'insight',
             label: 'AI 洞察',
             children: <div className="tab-placeholder">AI 洞察后续可接入 `POST /ai/task-insight`。</div>,
           },
-        ]}
-      />
+            ]}
+          />
+        </div>
+        <div className="drawer-bottom-composer">{commentComposer}</div>
+      </div>
     </Drawer>
   )
 }

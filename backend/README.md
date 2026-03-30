@@ -18,6 +18,13 @@ npm run dev
 
 默认端口：`3000`
 
+### 数据库
+
+- **所有业务数据都在 `DATABASE_URL` 指向的那一个 PostgreSQL 库里。** 若默认或 `.env` 改成了另一个库名（例如从 `sub_pm` 换成空的 `ai_project_pm`），界面会像「数据没了」——数据仍在旧库里，把 `DATABASE_URL` 改回去即可。
+- 执行 `prisma db push` / migrate 前请确认连接串，**勿对父项目/共用生产库执行**，以免改到对方表结构。
+- 表结构与 Prisma 对齐：`pnpm exec prisma db push`（或团队的 migrate 流程）。若全库 `db push` 因历史表结构差异报错，可**仅修子任务表**（幂等）：`pnpm run db:ensure-subtask-columns`（补列 + 将 `status` 的 CHECK 放宽为 `0/1/2`，否则选「已取消」会因库内旧约束报错）。
+- 可选 **`DATABASE_URL_BLOCKED_SUBSTRINGS`**（逗号分隔）：连接串包含任一字串时拒绝启动，防误连指定主机名等。
+
 健康检查：
 
 ```bash

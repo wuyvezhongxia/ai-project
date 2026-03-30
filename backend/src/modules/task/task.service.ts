@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type Subtask as PrismaSubtask } from "@prisma/client";
 import { z } from "zod";
 
 import {
@@ -23,6 +23,7 @@ import {
   createTaskSchema,
   relationSchema,
   subtaskSchema,
+  subtaskUpdateSchema,
   taskListQuerySchema,
   taskStatusSchema,
   updateTaskSchema,
@@ -35,6 +36,7 @@ type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 type StatusInput = z.infer<typeof taskStatusSchema>;
 type SubtaskInput = z.infer<typeof subtaskSchema>;
+type SubtaskUpdateInput = z.infer<typeof subtaskUpdateSchema>;
 type CommentInput = z.infer<typeof commentSchema>;
 type UploadFileInput = z.infer<typeof uploadFileSchema>;
 type BindAttachmentsInput = z.infer<typeof bindAttachmentsSchema>;
@@ -131,6 +133,25 @@ async function getActiveUser(ctx: AuthContext, userId?: string) {
   });
 
   return user ? toUserProfile(user) : null;
+}
+
+async function mapSubtasksWithCreators(ctx: AuthContext, rows: PrismaSubtask[]) {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const ids = [...new Set(rows.map((r) => String(r.createBy)))];
+  const map = new Map<string, Awaited<ReturnType<typeof getActiveUser>>>();
+  await Promise.all(
+    ids.map(async (id) => {
+      map.set(id, await getActiveUser(ctx, id));
+    }),
+  );
+
+  return rows.map((row) => ({
+    ...toSubtask(row),
+    creator: map.get(String(row.createBy)) ?? null,
+  }));
 }
 
 async function getProject(ctx: AuthContext, projectId?: string) {
@@ -402,7 +423,7 @@ async function buildTaskView(ctx: AuthContext, task: Task) {
       total: subtaskRows.length,
       completed: subtaskRows.filter((row) => row.status === "1").length,
     },
-    subtasks: subtaskRows.map((row) => toSubtask(row)),
+    subtasks: await mapSubtasksWithCreators(ctx, subtaskRows),
     comments: commentRows.map((row) => ({
       ...toTaskComment(row),
       user: commentUsers.get(String(row.commentUserId)) ?? null,
@@ -864,7 +885,7 @@ export const taskService = {
       orderBy: [{ sortNo: "asc" }, { createTime: "asc" }],
     });
 
-    return rows.map((row) => toSubtask(row));
+    return mapSubtasksWithCreators(ctx, rows);
   },
 
   async createSubtask(ctx: AuthContext, taskId: string, input: SubtaskInput) {
@@ -877,6 +898,10 @@ export const taskService = {
         subtaskName: input.subtaskName,
         status: input.status ?? "0",
         sortNo: input.sortNo ?? null,
+        priority: input.priority ?? "1",
+        plannedStartTime: input.plannedStartTime ? new Date(input.plannedStartTime) : null,
+        plannedDueTime: input.plannedDueTime ? new Date(input.plannedDueTime) : null,
+        finishTime: input.finishTime ? new Date(input.finishTime) : null,
         createBy: toDbId(ctx.userId),
         createTime: new Date(),
         delFlag: "0",
@@ -884,10 +909,11 @@ export const taskService = {
     });
 
     await logTaskActivity(ctx, taskId, "subtask_create", `新增子任务：${input.subtaskName}`);
-    return toSubtask(row);
+    const enriched = await mapSubtasksWithCreators(ctx, [row]);
+    return enriched[0]!;
   },
 
-  async updateSubtask(ctx: AuthContext, id: string, input: Partial<SubtaskInput>) {
+  async updateSubtask(ctx: AuthContext, id: string, input: SubtaskUpdateInput) {
     const row = await prisma.subtask.findFirst({
       where: {
         tenantId: ctx.tenantId,
@@ -902,19 +928,57 @@ export const taskService = {
 
     await getTaskOrThrow(ctx, String(row.taskId));
 
+    const data: Prisma.SubtaskUpdateInput = {
+      subtaskName: input.subtaskName ?? undefined,
+      sortNo: input.sortNo ?? undefined,
+      priority: input.priority ?? undefined,
+      updateBy: toDbId(ctx.userId),
+      updateTime: new Date(),
+    };
+
+    if (input.plannedStartTime !== undefined) {
+      data.plannedStartTime = input.plannedStartTime === null ? null : new Date(input.plannedStartTime);
+    }
+    if (input.plannedDueTime !== undefined) {
+      data.plannedDueTime = input.plannedDueTime === null ? null : new Date(input.plannedDueTime);
+    }
+
+    if (input.status === "2") {
+      data.status = "2";
+      data.delFlag = "1";
+      data.finishTime = null;
+    } else {
+      if (input.status !== undefined) {
+        data.status = input.status;
+      }
+
+      let nextFinish: Date | null | undefined;
+      if (input.finishTime !== undefined) {
+        nextFinish = input.finishTime === null ? null : new Date(input.finishTime);
+      }
+      if (input.status === "1" && nextFinish === undefined) {
+        nextFinish = row.finishTime ?? new Date();
+      }
+      if (input.status === "0" && input.finishTime === undefined) {
+        nextFinish = null;
+      }
+      if (nextFinish !== undefined) {
+        data.finishTime = nextFinish;
+      }
+    }
+
     const updated = await prisma.subtask.update({
       where: { id: row.id },
-      data: {
-        subtaskName: input.subtaskName ?? undefined,
-        status: input.status ?? undefined,
-        sortNo: input.sortNo ?? undefined,
-        updateBy: toDbId(ctx.userId),
-        updateTime: new Date(),
-      },
+      data,
     });
 
-    await logTaskActivity(ctx, String(row.taskId), "subtask_update", `更新子任务：${updated.subtaskName}`);
-    return toSubtask(updated);
+    if (input.status === "2") {
+      await logTaskActivity(ctx, String(row.taskId), "subtask_delete", `子任务已取消：${updated.subtaskName}`);
+    } else {
+      await logTaskActivity(ctx, String(row.taskId), "subtask_update", `更新子任务：${updated.subtaskName}`);
+    }
+    const enriched = await mapSubtasksWithCreators(ctx, [updated]);
+    return enriched[0]!;
   },
 
   async deleteSubtask(ctx: AuthContext, id: string) {

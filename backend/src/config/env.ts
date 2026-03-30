@@ -8,17 +8,48 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  /** PostgreSQL connection string, e.g. postgresql://USER:PASSWORD@localhost:5432/DB_NAME */
-  DATABASE_URL: z.string().min(1).default("postgresql://postgres:123456@localhost:5432/sub_pm"),
+  /**
+   * 默认 `sub_pm`：与历史本地开发一致，避免无 .env 时误连空库导致「数据全没了」。
+   * 新建独立环境可改用 `ai_project_pm` 等，在 .env 中覆盖即可；勿把生产/父项目连接串提交入库。
+   */
+  DATABASE_URL: z
+    .string()
+    .min(1)
+    .default("postgresql://postgres:123456@localhost:5432/sub_pm"),
   JWT_SECRET: z.string().min(1).default("pm-module-secret"),
   ALLOW_DEV_AUTH_BYPASS: z
     .string()
     .optional()
     .transform((value) => value === "true"),
+  /**
+   * 可选：逗号分隔子串；DATABASE_URL 包含任一则拒绝启动（禁止误连父项目库主机名、库名等）。
+   * 例：parent.db.internal,sub_pm_prod
+   */
+  DATABASE_URL_BLOCKED_SUBSTRINGS: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value
+        ? value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [],
+    ),
 });
 
 // 3. 校验环境变量并导出为强类型对象
-export const env = envSchema.parse(process.env);
+const parsed = envSchema.parse(process.env);
+
+for (const needle of parsed.DATABASE_URL_BLOCKED_SUBSTRINGS) {
+  if (parsed.DATABASE_URL.includes(needle)) {
+    throw new Error(
+      `[env] DATABASE_URL 包含被禁止的片段 "${needle}"，拒绝启动。请使用本仓库独立数据库，勿指向父项目或共用生产库。`,
+    );
+  }
+}
+
+export const env = parsed;
 
 process.env.PORT = String(env.PORT);
 process.env.NODE_ENV = env.NODE_ENV;

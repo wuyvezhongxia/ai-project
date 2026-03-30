@@ -5,10 +5,11 @@ import {
   projectBoardMap,
 } from '../data/mock'
 import type { BoardTask, Subtask, WorkTask } from '../types'
+import { getAvatarLabel } from './avatar'
 
 export const toBoardTask = (task: WorkTask): BoardTask => ({
   ...task,
-  assignee: task.owner.slice(0, 1),
+  assignee: getAvatarLabel(task.owner),
 })
 
 export const getStatusColor = (status: WorkTask['status'] | string) => {

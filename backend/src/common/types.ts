@@ -131,13 +131,18 @@ export type Subtask = {
   tenantId: string;
   taskId: ID;
   subtaskName: string;
-  status: "0" | "1";
+  status: "0" | "1" | "2";
   sortNo?: number;
+  priority: "0" | "1" | "2" | "3";
+  plannedStartTime?: string | null;
+  plannedDueTime?: string | null;
+  finishTime?: string | null;
   createBy: ID;
   createTime: string;
   updateBy?: ID;
   updateTime?: string;
   delFlag: "0" | "1";
+  creator?: UserProfile | null;
 };
 
 export type TaskComment = {

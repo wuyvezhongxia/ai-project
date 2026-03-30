@@ -48,8 +48,15 @@ export type Subtask = {
   id: string
   title: string
   done: boolean
-  owner: string
-  status?: string
+  rawStatus: '0' | '1' | '2'
+  statusLabel: string
+  priority: '0' | '1' | '2' | '3'
+  priorityLabel: string
+  plannedStartAt?: string | null
+  plannedDueAt?: string | null
+  finishAt?: string | null
+  creatorId?: string
+  creatorName: string
 }
 
 export type TaskCommentView = {

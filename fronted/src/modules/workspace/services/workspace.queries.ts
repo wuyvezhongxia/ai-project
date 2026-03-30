@@ -14,6 +14,7 @@ import {
 } from '../adapters/workspace.adapters'
 import type { ApiProject, ApiProjectGanttItem, ApiTask, ApiWorkloadItem } from './workspace.api'
 import { workspaceApi } from './workspace.api'
+import { getAvatarLabel } from '../utils/avatar'
 
 export const workspaceQueryKeys = {
   auth: ['auth-context'] as const,
@@ -30,6 +31,19 @@ export const workspaceQueryKeys = {
   taskDetail: (taskId: string) => ['task-detail', taskId] as const,
   projectOptions: ['project-options'] as const,
   userOptions: ['user-options'] as const,
+}
+
+const invalidateTaskRelatedQueries = (queryClient: ReturnType<typeof useQueryClient>, taskId?: string) => {
+  if (taskId) {
+    void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.taskDetail(taskId) })
+  }
+  void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.dashboard })
+  void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.mustDoToday })
+  void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.riskTasks })
+  void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
+  void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
+  void queryClient.invalidateQueries({ queryKey: ['projects'] })
+  void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
 }
 
 export const useAuthContextQuery = () =>
@@ -131,10 +145,10 @@ export const useTodoKanbanQuery = (params: URLSearchParams) =>
       }
       const grouped = data
       return [
-        { key: 'todo-board', title: '待开始', dotColor: '#8a92ff', count: grouped.notStarted?.length ?? 0, tasks: (grouped.notStarted ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
-        { key: 'doing-board', title: '进行中', dotColor: '#5b79ff', count: grouped.inProgress?.length ?? 0, tasks: (grouped.inProgress ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
-        { key: 'done-board', title: '已完成', dotColor: '#22d7a8', count: grouped.completed?.length ?? 0, tasks: (grouped.completed ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
-        { key: 'delay-board', title: '延期', dotColor: '#ff7b88', count: grouped.delayed?.length ?? 0, tasks: (grouped.delayed ?? []).map((task) => ({ ...mapTaskToView(task), assignee: task.assignee?.nickName?.slice(0, 1) ?? '未' })) },
+        { key: 'todo-board', title: '待开始', dotColor: '#8a92ff', count: grouped.notStarted?.length ?? 0, tasks: (grouped.notStarted ?? []).map((task) => ({ ...mapTaskToView(task), assignee: getAvatarLabel(task.assignee?.nickName) })) },
+        { key: 'doing-board', title: '进行中', dotColor: '#5b79ff', count: grouped.inProgress?.length ?? 0, tasks: (grouped.inProgress ?? []).map((task) => ({ ...mapTaskToView(task), assignee: getAvatarLabel(task.assignee?.nickName) })) },
+        { key: 'done-board', title: '已完成', dotColor: '#22d7a8', count: grouped.completed?.length ?? 0, tasks: (grouped.completed ?? []).map((task) => ({ ...mapTaskToView(task), assignee: getAvatarLabel(task.assignee?.nickName) })) },
+        { key: 'delay-board', title: '延期', dotColor: '#ff7b88', count: grouped.delayed?.length ?? 0, tasks: (grouped.delayed ?? []).map((task) => ({ ...mapTaskToView(task), assignee: getAvatarLabel(task.assignee?.nickName) })) },
       ]
     },
   })
@@ -221,14 +235,7 @@ export const useUpdateTaskMutation = () => {
     mutationFn: ({ taskId, payload }: { taskId: string; payload: Parameters<typeof workspaceApi.updateTask>[1] }) =>
       workspaceApi.updateTask(taskId, payload),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.taskDetail(variables.taskId) })
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.dashboard })
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.mustDoToday })
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.riskTasks })
-      void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
-      void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
+      invalidateTaskRelatedQueries(queryClient, variables.taskId)
       void queryClient.invalidateQueries({ queryKey: ['project-gantt'] })
       void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
     },
@@ -255,6 +262,49 @@ export const useCreateTaskCommentMutation = () => {
   })
 }
 
+export const useCreateSubtaskMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      payload,
+    }: {
+      taskId: string
+      payload: Parameters<typeof workspaceApi.createSubtask>[1]
+    }) => workspaceApi.createSubtask(taskId, payload),
+    onSuccess: (_data, variables) => {
+      invalidateTaskRelatedQueries(queryClient, variables.taskId)
+    },
+  })
+}
+
+export const useUpdateSubtaskMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (variables: {
+      taskId: string
+      subtaskId: string
+      payload: Parameters<typeof workspaceApi.updateSubtask>[1]
+    }) => workspaceApi.updateSubtask(variables.subtaskId, variables.payload),
+    onSuccess: (_data, variables) => {
+      invalidateTaskRelatedQueries(queryClient, variables.taskId)
+    },
+  })
+}
+
+export const useDeleteSubtaskMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (variables: { taskId: string; subtaskId: string }) => workspaceApi.deleteSubtask(variables.subtaskId),
+    onSuccess: (_data, variables) => {
+      invalidateTaskRelatedQueries(queryClient, variables.taskId)
+    },
+  })
+}
+
 export const useDeleteTaskMutation = () => {
   const queryClient = useQueryClient()
 
@@ -275,14 +325,7 @@ export const useUpdateTaskStatusMutation = () => {
   return useMutation({
     mutationFn: ({ taskId, status }: { taskId: string; status: string }) => workspaceApi.updateTaskStatus(taskId, status),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.taskDetail(variables.taskId) })
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.dashboard })
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.mustDoToday })
-      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.riskTasks })
-      void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
-      void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
+      invalidateTaskRelatedQueries(queryClient, variables.taskId)
       void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
     },
   })

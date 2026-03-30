@@ -66,12 +66,7 @@ export type ApiTask = {
     fileSize?: number
     createTime: string
   }>
-  subtasks?: Array<{
-    id: string
-    subtaskName: string
-    status: '0' | '1'
-    createTime?: string
-  }>
+  subtasks?: ApiSubtask[]
 }
 
 export type ApiProject = {
@@ -116,6 +111,39 @@ export type UpdateTaskPayload = Partial<{
   dueTime: string
   collaboratorUserIds: string[]
   status: '0' | '1' | '2' | '3'
+}>
+
+export type ApiSubtask = {
+  id: string
+  subtaskName: string
+  status: '0' | '1' | '2'
+  sortNo?: number
+  priority?: '0' | '1' | '2' | '3'
+  plannedStartTime?: string | null
+  plannedDueTime?: string | null
+  finishTime?: string | null
+  createTime?: string
+  creator?: ApiTaskUser | null
+}
+
+export type CreateSubtaskPayload = {
+  subtaskName: string
+  status?: '0' | '1'
+  sortNo?: number
+  priority?: '0' | '1' | '2' | '3'
+  plannedStartTime?: string
+  plannedDueTime?: string
+  finishTime?: string
+}
+
+export type UpdateSubtaskPayload = Partial<{
+  subtaskName: string
+  status: '0' | '1' | '2'
+  sortNo: number
+  priority: '0' | '1' | '2' | '3'
+  plannedStartTime: string | null
+  plannedDueTime: string | null
+  finishTime: string | null
 }>
 
 export type CreateTaskCommentPayload = {
@@ -207,6 +235,17 @@ export const workspaceApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  createSubtask: (taskId: string, payload: CreateSubtaskPayload) =>
+    apiRequest<ApiSubtask>(`/api/tasks/${taskId}/subtasks`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateSubtask: (subtaskId: string, payload: UpdateSubtaskPayload) =>
+    apiRequest<ApiSubtask>(`/api/subtasks/${subtaskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteSubtask: (subtaskId: string) => apiRequest(`/api/subtasks/${subtaskId}`, { method: 'DELETE' }),
   createTask: (payload: Record<string, unknown>) =>
     apiRequest('/api/tasks', {
       method: 'POST',

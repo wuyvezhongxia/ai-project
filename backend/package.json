@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
+    "db:ensure-subtask-columns": "tsx scripts/ensure-pm-subtask-columns.ts",
     "db:seed": "prisma db seed",
     "db:backfill-project-styles": "tsx scripts/backfill-project-styles.ts"
   },

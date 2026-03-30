@@ -14,6 +14,7 @@ import type {
   WorkloadMember,
 } from '../types'
 import type { ApiProject, ApiTask } from '../services/workspace.api'
+import { getAvatarLabel } from '../utils/avatar'
 
 const projectStatusMap: Record<string, ProjectCard['status']> = {
   '0': '进行中',
@@ -97,6 +98,16 @@ const bytesToText = (value?: number) => {
   return `${(value / 1024 / 1024).toFixed(1)} MB`
 }
 
+const normalizeActivityContent = (actionType: string, actionContent?: string) => {
+  const cleanedContent = actionContent?.replace(/^[a-z][a-z0-9_]*\s*[·:：-]\s*/i, '').trim()
+  if (cleanedContent) return cleanedContent
+
+  const cleanedType = actionType.replace(/_/g, ' ').trim()
+  return cleanedType ? '操作记录' : '操作记录'
+}
+
+const formatRecordTime = (value: string) => dayjs(value).format('YYYY/MM/DD HH:mm')
+
 export const mapTaskToView = (task: ApiTask): WorkTask => ({
   id: String(task.id),
   title: task.taskName,
@@ -126,36 +137,69 @@ export const mapTaskToView = (task: ApiTask): WorkTask => ({
   subtaskCompleted: task.subtaskSummary?.completed,
 })
 
+const normalizeSubtaskStatus = (value: unknown): '0' | '1' | '2' => {
+  const s = value === null || value === undefined ? '0' : String(value)
+  if (s === '1') return '1'
+  if (s === '2') return '2'
+  return '0'
+}
+
+const normalizeSubtaskPriority = (value: unknown): '0' | '1' | '2' | '3' => {
+  const s = value === null || value === undefined ? '1' : String(value)
+  if (s === '0' || s === '1' || s === '2' || s === '3') return s
+  return '1'
+}
+
 export const mapTaskDetailToView = (task: ApiTask): TaskDetailView => {
   const base = mapTaskToView(task)
   const excludedCollaboratorIds = new Set(
     [task.assigneeUserId, task.creatorUserId].filter((value): value is string => Boolean(value)),
   )
 
+  const subtaskPriorityLabels: Record<'0' | '1' | '2' | '3', string> = {
+    '0': '低',
+    '1': '中',
+    '2': '高',
+    '3': '紧急',
+  }
+
   const subtasks: Subtask[] =
-    task.subtasks?.map((item) => ({
-      id: String(item.id),
-      title: item.subtaskName,
-      done: item.status === '1',
-      owner: base.owner,
-      status: item.status === '1' ? '已完成' : '进行中',
-    })) ?? []
+    task.subtasks?.map((item) => {
+      const rawStatus = normalizeSubtaskStatus(item.status)
+      const pr = normalizeSubtaskPriority(item.priority)
+      const statusLabel =
+        rawStatus === '1' ? '已完成' : rawStatus === '2' ? '已取消' : '待处理'
+      return {
+        id: String(item.id),
+        title: item.subtaskName,
+        done: rawStatus === '1',
+        rawStatus,
+        statusLabel,
+        priority: pr,
+        priorityLabel: subtaskPriorityLabels[pr] ?? '中',
+        plannedStartAt: item.plannedStartTime ?? null,
+        plannedDueAt: item.plannedDueTime ?? null,
+        finishAt: item.finishTime ?? null,
+        creatorId: item.creator?.userId,
+        creatorName: item.creator?.nickName ?? '未知',
+      }
+    }) ?? []
 
   const comments: TaskCommentView[] =
     task.comments?.map((item) => ({
       id: String(item.id),
       content: item.content,
       userName: item.user?.nickName ?? '未知用户',
-      createTime: dayjs(item.createTime).format('MM/DD HH:mm'),
+      createTime: formatRecordTime(item.createTime),
     })) ?? []
 
   const activities: ActivityView[] =
     task.activities?.map((item) => ({
       id: String(item.id),
       actionType: item.actionType,
-      actionContent: item.actionContent ?? item.actionType,
+      actionContent: normalizeActivityContent(item.actionType, item.actionContent),
       userName: item.user?.nickName ?? '系统',
-      createTime: dayjs(item.createTime).format('MM/DD HH:mm'),
+      createTime: formatRecordTime(item.createTime),
     })) ?? []
 
   const relations: RelationView[] =
@@ -172,7 +216,7 @@ export const mapTaskDetailToView = (task: ApiTask): TaskDetailView => {
       fileName: item.fileName,
       fileUrl: item.fileUrl,
       fileSizeText: bytesToText(item.fileSize),
-      metaText: `${bytesToText(item.fileSize)} · ${dayjs(item.createTime).format('MM/DD HH:mm')}`,
+      metaText: `${bytesToText(item.fileSize)} · ${formatRecordTime(item.createTime)}`,
     })) ?? []
 
   return {
@@ -246,7 +290,7 @@ export const mapProjectTaskKanban = (input: Record<string, ApiTask[]>) => [
   count: column.tasks.length,
   tasks: column.tasks.map((task) => ({
     ...mapTaskToView(task),
-    assignee: task.assignee?.nickName?.slice(0, 1) ?? '未',
+    assignee: getAvatarLabel(task.assignee?.nickName),
   })),
 }))
 
@@ -267,7 +311,7 @@ export const mapTaskListToBoardColumns = (tasks: ApiTask[]) => {
       count: matched.length,
       tasks: matched.map((task) => ({
         ...mapTaskToView(task),
-        assignee: task.assignee?.nickName?.slice(0, 1) ?? '未',
+        assignee: getAvatarLabel(task.assignee?.nickName),
       })),
     }
   })

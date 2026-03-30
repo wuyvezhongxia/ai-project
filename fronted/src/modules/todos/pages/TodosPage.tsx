@@ -442,7 +442,7 @@ function TodosPage() {
                           <div className="board-task-footer">
                             <span className={getDueTextClassName(task.dueCategory)}>{task.dueText}</span>
                             <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
-                              {task.assignee || getAvatarLabel(task.owner)}
+                              {getAvatarLabel(task.owner)}
                             </Avatar>
                           </div>
                         </button>
@@ -468,7 +468,7 @@ function TodosPage() {
                     <div className="board-task-footer">
                       <span className={getDueTextClassName(task.dueCategory)}>{task.dueText}</span>
                       <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
-                        {task.assignee || getAvatarLabel(task.owner)}
+                        {getAvatarLabel(task.owner)}
                       </Avatar>
                     </div>
                   </button>

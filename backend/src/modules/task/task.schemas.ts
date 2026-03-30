@@ -53,6 +53,22 @@ export const subtaskSchema = z.object({
   subtaskName: z.string().min(1).max(200),
   status: z.enum(["0", "1"]).optional(),
   sortNo: z.number().int().optional(),
+  priority: z.enum(["0", "1", "2", "3"]).optional(),
+  plannedStartTime: z.string().datetime().optional(),
+  plannedDueTime: z.string().datetime().optional(),
+  finishTime: z.string().datetime().optional(),
+});
+
+const isoDateTimeOrNull = z.union([z.string().datetime(), z.null()]);
+
+export const subtaskUpdateSchema = z.object({
+  subtaskName: z.string().min(1).max(200).optional(),
+  status: z.enum(["0", "1", "2"]).optional(),
+  sortNo: z.number().int().optional(),
+  priority: z.enum(["0", "1", "2", "3"]).optional(),
+  plannedStartTime: isoDateTimeOrNull.optional(),
+  plannedDueTime: isoDateTimeOrNull.optional(),
+  finishTime: isoDateTimeOrNull.optional(),
 });
 
 export const commentSchema = z.object({

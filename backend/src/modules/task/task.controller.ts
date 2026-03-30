@@ -13,6 +13,7 @@ import {
   relationIdParamsSchema,
   relationSchema,
   subtaskSchema,
+  subtaskUpdateSchema,
   tagIdParamsSchema,
   taskListQuerySchema,
   taskStatusSchema,
@@ -94,7 +95,7 @@ export const createSubtask = async (req: AuthedRequest, res: Response) => {
 
 export const updateSubtask = async (req: AuthedRequest, res: Response) => {
   const params = parseParams(idParamsSchema, req.params);
-  const body = parseBody(subtaskSchema.partial(), req.body);
+  const body = parseBody(subtaskUpdateSchema, req.body);
   ok(res, await taskService.updateSubtask(req.ctx, params.id, body), "Subtask updated");
 };
 
