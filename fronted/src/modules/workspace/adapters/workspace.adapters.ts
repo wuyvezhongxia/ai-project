@@ -37,7 +37,7 @@ const priorityMap: Record<string, WorkTask['priority']> = {
 }
 
 const workloadColors = ['#f6c54f', '#ff7c8b', '#1ed6a6', '#6f7cff', '#9b7bff']
-const ganttActiveColors = ['#5a7cff', '#8e7dff', '#37c7ff', '#f6c54f', '#ff9a62']
+const ganttActiveColors = ['#7b8fda', '#9386d9', '#67a9d6', '#d9b768', '#d99c76']
 const hashString = (value: string) =>
   Array.from(value).reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7)
 
@@ -122,6 +122,8 @@ export const mapTaskToView = (task: ApiTask): WorkTask => ({
     userId: user.userId,
     nickName: user.nickName,
   })),
+  subtaskTotal: task.subtaskSummary?.total,
+  subtaskCompleted: task.subtaskSummary?.completed,
 })
 
 export const mapTaskDetailToView = (task: ApiTask): TaskDetailView => {
@@ -289,9 +291,9 @@ export const mapGanttRows = (
     const widthDays = Math.max(end.diff(start, 'day') + 1, 1)
     const baseColor =
       item.status === '3'
-        ? '#ff7a87'
+        ? '#d9828f'
         : item.status === '2'
-          ? '#22d7a8'
+          ? '#56b89a'
           : ganttActiveColors[(index + Math.abs(hashString(item.taskId || item.taskName))) % ganttActiveColors.length]
     const color =
       baseColor === previousColor && item.status !== '2' && item.status !== '3'

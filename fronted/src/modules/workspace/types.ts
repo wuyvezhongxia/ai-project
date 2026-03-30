@@ -29,6 +29,8 @@ export type WorkTask = {
   taskType?: string
   description?: string
   collaborators?: Array<{ userId: string; nickName: string }>
+  subtaskTotal?: number
+  subtaskCompleted?: number
 }
 
 export type RiskTask = {

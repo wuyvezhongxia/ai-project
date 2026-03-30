@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Avatar, Button, Card, Dropdown, Empty, Progress, Segmented, Space, Spin, Tag } from 'antd'
+import { Avatar, Button, Card, Dropdown, Empty, Progress, Space, Spin, Tag } from 'antd'
 import type { MenuProps } from 'antd'
-import { DownOutlined, PlusOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BarChartOutlined, CalendarOutlined, DownOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import { useOutletContext } from 'react-router-dom'
@@ -38,6 +38,21 @@ const hexToRgba = (hex: string, alpha: number) => {
   const g = (value >> 8) & 255
   const b = value & 255
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+const getProjectDueTextClassName = (task: WorkTask) => {
+  if (task.completed || task.status === '已完成') return 'success-text'
+  if (task.status === '延期' || task.dueCategory === 'overdue') return 'danger-text'
+  if (task.dueCategory === 'today') return 'warning-text'
+  return 'muted-text'
+}
+
+const getProjectSubtaskText = (task: WorkTask) => {
+  if (typeof task.subtaskTotal === 'number') {
+    return `${task.subtaskCompleted ?? 0}/${task.subtaskTotal}`
+  }
+
+  return '查看详情'
 }
 
 function ProjectStatsChart({ option, className }: { option: EChartsOption; className?: string }) {
@@ -363,17 +378,26 @@ function ProjectsPage() {
           className="glass-card project-detail-surface"
           title={`${activeProject.name} · 任务视图`}
           extra={
-            <Segmented
-              className="project-view-switch"
-              value={projectView}
-              onChange={(value) => setProjectView(value as ProjectView)}
-              options={[
-                { label: '列表', value: 'list' },
-                { label: '看板', value: 'kanban' },
-                { label: '甘特图', value: 'gantt' },
-                { label: '统计', value: 'stats' },
-              ]}
-            />
+            <div className="project-view-switch" role="tablist" aria-label="项目视图切换">
+              {[
+                { label: '列表', value: 'list', icon: <UnorderedListOutlined /> },
+                { label: '看板', value: 'kanban', icon: <AppstoreOutlined /> },
+                { label: '甘特图', value: 'gantt', icon: <CalendarOutlined /> },
+                { label: '统计', value: 'stats', icon: <BarChartOutlined /> },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={projectView === item.value}
+                  className={projectView === item.value ? 'project-view-switch-button project-view-switch-button-active' : 'project-view-switch-button'}
+                  onClick={() => setProjectView(item.value as ProjectView)}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
           }
         >
           {projectView === 'kanban' ? (
@@ -415,35 +439,55 @@ function ProjectsPage() {
           ) : null}
 
           {projectView === 'list' ? (
-            <div className="todo-list-card">
+            <div className="project-task-table">
               {loadingList ? <Spin /> : null}
-              <div className="todo-list-header todo-list-header-project">
+              {!activeProjectList.length && !loadingList ? <Empty description="当前项目暂无任务" /> : null}
+              <div className="project-task-table-header">
                 <span>任务名称</span>
                 <span>状态</span>
                 <span>优先级</span>
+                <span>子任务</span>
                 <span>截止时间</span>
                 <span>负责人</span>
               </div>
               {activeProjectList.map((task) => (
-                <button
+                <div
                   key={task.id}
-                  type="button"
-                  className="todo-list-row todo-list-row-button todo-list-row-project"
+                  className="project-task-table-row"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => openTaskDetail(task.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openTaskDetail(task.id)
+                    }
+                  }}
                 >
-                  <div className="todo-cell-main">
-                    <div className="todo-row-title">{task.title}</div>
+                  <div className="project-task-main">
+                    <div className="project-task-title">{task.title}</div>
+                    <div className="project-task-meta">
+                      <span>{task.id}</span>
+                      {task.taskType ? <span>{task.taskType}</span> : null}
+                    </div>
                   </div>
-                  <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
-                  <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
-                  <span>{task.dueText}</span>
-                  <Space>
+                  <div className="project-task-cell">
+                    <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
+                  </div>
+                  <div className="project-task-cell">
+                    <Tag color={getPriorityColor(task.priority)}>{task.priority}</Tag>
+                  </div>
+                  <div className="project-task-cell">
+                    <span className="project-task-subtask">{getProjectSubtaskText(task)}</span>
+                  </div>
+                  <span className={`project-task-due ${getProjectDueTextClassName(task)}`}>{task.dueText}</span>
+                  <Space className="project-task-owner">
                     <Avatar size="small" style={getAvatarStyle(getAvatarSeed(task.ownerId, task.owner))}>
                       {getAvatarLabel(task.owner)}
                     </Avatar>
                     <span>{task.owner}</span>
                   </Space>
-                </button>
+                </div>
               ))}
             </div>
           ) : null}
@@ -454,15 +498,16 @@ function ProjectsPage() {
               {activeGanttRows.map((row) => (
                 <div key={row.label} className="gantt-row">
                   <div className="gantt-label">{row.label}</div>
-                  <div className="gantt-track">
-                    <div className="gantt-track-line" />
-                    <div
-                      className="gantt-bar"
-                      style={{ marginLeft: `${row.start}%`, width: `${row.width}%`, background: row.color }}
-                    >
-                      <span className="gantt-bar-title">{row.label}</span>
-                      <span className="gantt-bar-note">{row.note}</span>
+                  <div className="gantt-track-shell">
+                    <div className="gantt-track">
+                      <div className="gantt-track-line" />
+                      <div
+                        className="gantt-bar"
+                        style={{ marginLeft: `${row.start}%`, width: `${row.width}%`, background: row.color }}
+                        aria-label={`${row.label} 进度 ${row.note}`}
+                      />
                     </div>
+                    <span className="gantt-progress">{row.note}</span>
                   </div>
                 </div>
               ))}

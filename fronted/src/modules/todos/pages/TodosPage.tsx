@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppstoreOutlined, BarsOutlined, DeleteOutlined, DownOutlined, FilterOutlined, PlusOutlined, SortAscendingOutlined } from '@ant-design/icons'
-import { Avatar, Button, Card, Checkbox, Dropdown, Modal, Pagination, Segmented, Space, Tag } from 'antd'
+import { Avatar, Button, Card, Checkbox, Dropdown, Modal, Pagination, Space, Tag } from 'antd'
 import type { MenuProps } from 'antd'
 import { useOutletContext } from 'react-router-dom'
 import type { AppLayoutOutletContext } from '../../../components/layout/AppLayout'
@@ -271,15 +271,24 @@ function TodosPage() {
           className="glass-card todo-list-surface"
           title={`待办列表 · 共 ${filteredTodoTasks.length} 项`}
           extra={
-            <Segmented
-              className="todo-view-switch"
-              value={todoView}
-              onChange={(value) => setTodoView(value as TodoView)}
-              options={[
+            <div className="todo-view-switch" role="tablist" aria-label="待办视图切换">
+              {[
                 { label: '列表', value: 'list', icon: <BarsOutlined /> },
                 { label: '看板', value: 'kanban', icon: <AppstoreOutlined /> },
-              ]}
-            />
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={todoView === item.value}
+                  className={todoView === item.value ? 'todo-view-switch-button todo-view-switch-button-active' : 'todo-view-switch-button'}
+                  onClick={() => setTodoView(item.value as TodoView)}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
           }
         >
           <div className="todo-list-card">
@@ -389,15 +398,24 @@ function TodosPage() {
           className="glass-card todo-kanban-surface"
           title={todoStatusFilter === 'all' ? '待办看板' : `待办看板 · ${todoStatusFilter}`}
           extra={
-            <Segmented
-              className="todo-view-switch"
-              value={todoView}
-              onChange={(value) => setTodoView(value as TodoView)}
-              options={[
+            <div className="todo-view-switch" role="tablist" aria-label="待办视图切换">
+              {[
                 { label: '列表', value: 'list', icon: <BarsOutlined /> },
                 { label: '看板', value: 'kanban', icon: <AppstoreOutlined /> },
-              ]}
-            />
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={todoView === item.value}
+                  className={todoView === item.value ? 'todo-view-switch-button todo-view-switch-button-active' : 'todo-view-switch-button'}
+                  onClick={() => setTodoView(item.value as TodoView)}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
           }
         >
           {todoStatusFilter === 'all' ? (

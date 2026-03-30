@@ -20,6 +20,11 @@
 }
 
 @media (max-width: 1200px) {
+  .project-task-table-header,
+  .project-task-table-row {
+    grid-template-columns: minmax(240px, 2.3fr) 0.9fr 0.8fr 0.9fr 0.95fr 1fr;
+  }
+
   .project-card-grid {
     min-width: max-content;
   }
@@ -105,6 +110,25 @@
 }
 
 @media (max-width: 900px) {
+  .project-task-table-header {
+    display: none;
+  }
+
+  .project-task-table-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: start;
+    row-gap: 10px;
+  }
+
+  .project-task-main {
+    grid-column: 1 / -1;
+  }
+
+  .project-task-due,
+  .project-task-owner {
+    grid-column: auto;
+  }
+
   .project-summary-card {
     flex-basis: calc((100% - 24px) / 3);
     width: calc((100% - 24px) / 3);
@@ -165,6 +189,16 @@
 }
 
 @media (max-width: 640px) {
+  .project-task-table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .project-task-cell,
+  .project-task-due,
+  .project-task-owner {
+    grid-column: 1;
+  }
+
   .project-page-toolbar {
     align-items: flex-start;
     gap: 10px;
