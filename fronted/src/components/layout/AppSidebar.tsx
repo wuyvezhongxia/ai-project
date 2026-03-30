@@ -1,5 +1,5 @@
-import { AimOutlined, AppstoreOutlined, FolderOpenOutlined } from '@ant-design/icons'
-import { Avatar } from 'antd'
+import { AimOutlined, AppstoreOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons'
+import { Avatar, Button } from 'antd'
 import type { ComponentType } from 'react'
 import type { PageKey } from '../../modules/workspace/types'
 import { navGroups } from '../../modules/workspace/data/mock'
@@ -19,7 +19,12 @@ const navIcons: Record<PageKey, ComponentType> = {
   todos: AimOutlined,
 }
 
-function AppSidebar() {
+type AppSidebarProps = {
+  actionLabel: string
+  onActionClick: () => void
+}
+
+function AppSidebar({ actionLabel, onActionClick }: AppSidebarProps) {
   const { data: authContext } = useAuthContextQuery()
   const { projectBadge, todoBadge, todoBadgeDanger } = useSidebarNavCounts()
 
@@ -33,12 +38,20 @@ function AppSidebar() {
 
   return (
     <aside className="app-sidebar">
-      <div className="sidebar-top">
-        <div className="brand-block">
-          <div className="brand-avatar">筑</div>
-          <div className="brand-text">
-            <div className="brand-title">软小筑</div>
-            <div className="brand-subtitle">WorkOS v2.0</div>
+      <div className="sidebar-user">
+        <Avatar
+          size={44}
+          src={authContext?.avatarUrl || undefined}
+          style={authContext?.avatarUrl ? undefined : getAvatarStyle(getAvatarSeed(authContext?.userId, authContext?.nickName, authContext?.userName))}
+        >
+          {getAvatarLabel(authContext?.nickName?.trim() || authContext?.userName?.trim() || '用')}
+        </Avatar>
+        <div className="sidebar-user-meta">
+          <div className="sidebar-user-name">
+            {authContext?.nickName?.trim() || authContext?.userName?.trim() || '—'}
+          </div>
+          <div className="sidebar-user-role">
+            {authContext?.roleNames?.length ? authContext.roleNames.join(' · ') : '—'}
           </div>
         </div>
       </div>
@@ -73,23 +86,9 @@ function AppSidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-user">
-        <Avatar
-          size={44}
-          src={authContext?.avatarUrl || undefined}
-          style={authContext?.avatarUrl ? undefined : getAvatarStyle(getAvatarSeed(authContext?.userId, authContext?.nickName, authContext?.userName))}
-        >
-          {getAvatarLabel(authContext?.nickName?.trim() || authContext?.userName?.trim() || '用')}
-        </Avatar>
-        <div className="sidebar-user-meta">
-          <div className="sidebar-user-name">
-            {authContext?.nickName?.trim() || authContext?.userName?.trim() || '—'}
-          </div>
-          <div className="sidebar-user-role">
-            {authContext?.roleNames?.length ? authContext.roleNames.join(' · ') : '—'}
-          </div>
-        </div>
-      </div>
+      <Button type="primary" className="sidebar-primary-action" icon={<PlusOutlined />} onClick={onActionClick}>
+        {actionLabel}
+      </Button>
     </aside>
   )
 }

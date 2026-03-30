@@ -1,7 +1,13 @@
 .app-shell {
-  display: grid;
-  grid-template-columns: 219px minmax(0, 1fr);
-  height: 100vh;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100%;
+  padding: 24px;
   color: var(--pm-text-primary);
+  background: var(--pm-bg-app);
+}
+
+.app-content {
+  min-width: 0;
 }

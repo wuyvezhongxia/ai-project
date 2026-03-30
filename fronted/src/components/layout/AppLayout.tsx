@@ -52,17 +52,16 @@ function AppLayout() {
 
   return (
     <div className="app-shell">
-      <AppSidebar />
-
-      <main className="dashboard-shell">
-        <PageHeader
-          title={currentPage.title}
-          subtitle={dynamicSubtitle}
-          actionLabel={currentPage.actionLabel}
-          onActionClick={handlePrimaryAction}
-        />
-        <Outlet />
-      </main>
+      <AppSidebar actionLabel={currentPage.actionLabel} onActionClick={handlePrimaryAction} />
+      <div className="app-content">
+        <main className="dashboard-shell">
+          <PageHeader
+            title={currentPage.title}
+            subtitle={dynamicSubtitle}
+          />
+          <Outlet />
+        </main>
+      </div>
 
       <ProjectCreateModal />
       <TaskCreateModal />

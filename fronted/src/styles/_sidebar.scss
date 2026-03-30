@@ -1,96 +1,40 @@
 /* 左右不要写在侧栏根上，否则带 border 的子块（如品牌底边线）无法贴满宽度 */
 .app-sidebar {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 100vh;
-  background: var(--pm-bg-sidebar);
-  border-right: 1px solid var(--pm-border-default);
-}
-
-.sidebar-top {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-}
-
-.brand-block {
-  display: flex;
-  flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  width: 100%;
-  padding: 16px 16px 18px;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--pm-border-strong);
-}
-
-.brand-avatar {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  color: var(--pm-text-on-accent);
-  background: var(--pm-gradient-brand);
-  box-shadow: 0 12px 28px rgba(68, 102, 255, 0.28);
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.brand-title {
-  margin: 5px;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--pm-text-heading);
-}
-
-.brand-subtitle {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.2;
-  color: var(--pm-text-faint);
-  text-transform: lowercase;
+  gap: 20px;
+  padding: 18px 24px;
+  background: var(--pm-bg-sidebar);
+  border: 1px solid var(--pm-border-card);
+  border-radius: 24px;
+  box-shadow: var(--pm-shadow-card-soft);
 }
 
 .nav-menu {
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
   flex: 1;
-  min-height: 0;
-  margin-top: 16px;
-  padding: 0 16px;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  min-width: 0;
+  margin-top: 0;
+  padding: 0;
+  overflow: visible;
 }
 
 .nav-section + .nav-section {
-  margin-top: 22px;
+  margin-top: 0;
 }
 
 .nav-section-title {
-  padding: 6px 0 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--pm-text-faint);
-  text-transform: uppercase;
+  display: none;
 }
 
 .nav-section-items {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -99,12 +43,12 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
+  width: auto;
   padding: 10px 14px;
-  border: 1px solid transparent;
+  border: 1px solid var(--pm-border-row-faint);
   border-radius: 14px;
   color: var(--pm-text-secondary);
-  background: transparent;
+  background: var(--pm-bg-button);
   cursor: pointer;
   text-decoration: none;
   transition:
@@ -148,15 +92,7 @@
 }
 
 .nav-item-active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: 56%;
-  border-radius: 0 4px 4px 0;
-  background: #5d7cff;
-  transform: translateY(-50%);
+  display: none;
 }
 
 .nav-count {
@@ -180,11 +116,11 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  margin: 0 12px;
+  flex-shrink: 0;
   padding: 10px 12px;
   border-radius: 18px;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid var(--pm-border-row-faint);
+  background: var(--pm-bg-button);
   transition:
     background-color 180ms ease,
     border-color 180ms ease,
@@ -226,4 +162,15 @@
   font-size: 13px;
   line-height: 1.25;
   color: var(--pm-text-muted);
+}
+
+.sidebar-primary-action {
+  flex-shrink: 0;
+  height: 40px;
+  padding-inline: 16px;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  background: var(--pm-gradient-primary) !important;
+  box-shadow: 0 8px 18px rgba(72, 100, 222, 0.18);
 }
