@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppstoreOutlined, BarsOutlined, DeleteOutlined, DownOutlined, FilterOutlined, PlusOutlined, SortAscendingOutlined } from '@ant-design/icons'
-import { Avatar, Button, Card, Dropdown, Modal, Pagination, Segmented, Space, Tag } from 'antd'
+import { Avatar, Button, Card, Checkbox, Dropdown, Modal, Pagination, Segmented, Space, Tag } from 'antd'
 import type { MenuProps } from 'antd'
+import { useOutletContext } from 'react-router-dom'
+import type { AppLayoutOutletContext } from '../../../components/layout/AppLayout'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import type { TodoScope, TodoView } from '../../workspace/types'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
-import { useDeleteTaskMutation, useTodoKanbanQuery, useTodoListQuery } from '../../workspace/services/workspace.queries'
+import { useDeleteTaskMutation, useTodoKanbanQuery, useTodoListQuery, useUpdateTaskStatusMutation } from '../../workspace/services/workspace.queries'
 
 const statusValueMap: Record<string, string> = {
   待开始: '0',
@@ -30,9 +32,11 @@ const getDueTextClassName = (dueCategory?: 'today' | 'week' | 'overdue' | 'compl
 }
 
 function TodosPage() {
+  const { setHeaderToolbar } = useOutletContext<AppLayoutOutletContext>()
   const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const deleteTaskMutation = useDeleteTaskMutation()
+  const updateTaskStatusMutation = useUpdateTaskStatusMutation()
 
   const [todoScope, setTodoScope] = useState<TodoScope>('all')
   const [todoView, setTodoView] = useState<TodoView>('list')
@@ -40,6 +44,7 @@ function TodosPage() {
   const [todoSort, setTodoSort] = useState<string>('截止时间')
   const [todoPage, setTodoPage] = useState(1)
   const [todoPageSize, setTodoPageSize] = useState(5)
+  const [selectedTodoIds, setSelectedTodoIds] = useState<string[]>([])
 
   const baseParams = useMemo(() => {
     const params = new URLSearchParams()
@@ -105,6 +110,11 @@ function TodosPage() {
     }
   }, [filteredTodoTasks.length, todoPage, todoPageSize])
 
+  useEffect(() => {
+    const visibleTaskIdSet = new Set(filteredTodoTasks.map((task) => task.id))
+    setSelectedTodoIds((current) => current.filter((taskId) => visibleTaskIdSet.has(taskId)))
+  }, [filteredTodoTasks])
+
   const handleDeleteTodo = (taskId: string) => {
     Modal.confirm({
       title: '确认删除该待办？',
@@ -116,79 +126,153 @@ function TodosPage() {
     })
   }
 
-  const filterMenu: MenuProps = {
-    selectable: true,
-    selectedKeys: [todoStatusFilter],
-    items: [
-      { key: 'all', label: '全部状态' },
-      { key: '待开始', label: '待开始' },
-      { key: '进行中', label: '进行中' },
-      { key: '已完成', label: '已完成' },
-      { key: '延期', label: '延期' },
-    ],
-    onClick: ({ key }) => setTodoStatusFilter(key),
+  const selectedTodoCount = selectedTodoIds.length
+  const pagedTodoTaskIds = pagedTodoTasks.map((task) => task.id)
+  const selectedPagedTodoCount = pagedTodoTaskIds.filter((taskId) => selectedTodoIds.includes(taskId)).length
+  const allPagedTodosSelected = pagedTodoTaskIds.length > 0 && selectedPagedTodoCount === pagedTodoTaskIds.length
+  const somePagedTodosSelected = selectedPagedTodoCount > 0 && selectedPagedTodoCount < pagedTodoTaskIds.length
+
+  const toggleTodoSelection = (taskId: string, checked: boolean) => {
+    setSelectedTodoIds((current) => {
+      if (checked) {
+        return current.includes(taskId) ? current : [...current, taskId]
+      }
+      return current.filter((id) => id !== taskId)
+    })
   }
 
-  const sortMenu: MenuProps = {
-    selectable: true,
-    selectedKeys: [todoSort],
-    items: [
-      { key: '截止时间', label: '截止时间' },
-      { key: '创建时间', label: '创建时间' },
-      { key: '优先级', label: '优先级' },
-      { key: '任务名称', label: '任务名称' },
-    ],
-    onClick: ({ key }) => setTodoSort(key),
+  const toggleSelectAllPagedTodos = (checked: boolean) => {
+    setSelectedTodoIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...pagedTodoTaskIds]))
+      }
+      return current.filter((id) => !pagedTodoTaskIds.includes(id))
+    })
   }
+
+  const clearTodoSelection = () => setSelectedTodoIds([])
+
+  const handleBatchStatusUpdate = (status: '1' | '2') => {
+    const actionLabel = status === '2' ? '完成' : '设为进行中'
+    Modal.confirm({
+      title: `确认批量${actionLabel}选中的待办？`,
+      content: `共 ${selectedTodoCount} 项，操作后会同步更新列表状态。`,
+      okText: `批量${actionLabel}`,
+      cancelText: '取消',
+      onOk: async () => {
+        await Promise.all(selectedTodoIds.map((taskId) => updateTaskStatusMutation.mutateAsync({ taskId, status })))
+        clearTodoSelection()
+      },
+    })
+  }
+
+  const handleBatchDelete = () => {
+    Modal.confirm({
+      title: '确认批量删除选中的待办？',
+      content: `共 ${selectedTodoCount} 项，删除后不可恢复，请再次确认。`,
+      okText: '批量删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await Promise.all(selectedTodoIds.map((taskId) => deleteTaskMutation.mutateAsync(taskId)))
+        clearTodoSelection()
+      },
+    })
+  }
+
+  const filterMenu = useMemo<MenuProps>(
+    () => ({
+      selectable: true,
+      selectedKeys: [todoStatusFilter],
+      items: [
+        { key: 'all', label: '全部状态' },
+        { key: '待开始', label: '待开始' },
+        { key: '进行中', label: '进行中' },
+        { key: '已完成', label: '已完成' },
+        { key: '延期', label: '延期' },
+      ],
+      onClick: ({ key }) => setTodoStatusFilter(key),
+    }),
+    [todoStatusFilter],
+  )
+
+  const sortMenu = useMemo<MenuProps>(
+    () => ({
+      selectable: true,
+      selectedKeys: [todoSort],
+      items: [
+        { key: '截止时间', label: '截止时间' },
+        { key: '创建时间', label: '创建时间' },
+        { key: '优先级', label: '优先级' },
+        { key: '任务名称', label: '任务名称' },
+      ],
+      onClick: ({ key }) => setTodoSort(key),
+    }),
+    [todoSort],
+  )
+
+  const todoHeaderToolbar = useMemo(
+    () => (
+      <div className="toolbar-row toolbar-row-wrap todo-page-toolbar">
+        <Space wrap>
+          <Button type={todoScope === 'all' ? 'primary' : 'default'} className={todoScope === 'all' ? '' : 'ghost-button'} onClick={() => setTodoScope('all')}>
+            全部
+          </Button>
+          <Button type={todoScope === 'owned' ? 'primary' : 'default'} className={todoScope === 'owned' ? '' : 'ghost-button'} onClick={() => setTodoScope('owned')}>
+            我负责的
+          </Button>
+          <Button type={todoScope === 'created' ? 'primary' : 'default'} className={todoScope === 'created' ? '' : 'ghost-button'} onClick={() => setTodoScope('created')}>
+            我创建的
+          </Button>
+          <Button
+            type={todoScope === 'collaborated' ? 'primary' : 'default'}
+            className={todoScope === 'collaborated' ? '' : 'ghost-button'}
+            onClick={() => setTodoScope('collaborated')}
+          >
+            协作中
+          </Button>
+        </Space>
+        <Space wrap className="todo-toolbar-actions">
+          <Dropdown menu={filterMenu} trigger={['hover']} placement="bottomRight">
+            <Button className="ghost-button" icon={<FilterOutlined />} aria-label="筛选">
+              筛选
+              <DownOutlined />
+            </Button>
+          </Dropdown>
+          <Dropdown menu={sortMenu} trigger={['hover']} placement="bottomRight">
+            <Button className="ghost-button" icon={<SortAscendingOutlined />} aria-label="排序">
+              排序
+              <DownOutlined />
+            </Button>
+          </Dropdown>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openTaskModal}>
+            新建待办
+          </Button>
+        </Space>
+      </div>
+    ),
+    [filterMenu, openTaskModal, sortMenu, todoScope],
+  )
+
+  useEffect(() => {
+    setHeaderToolbar(todoHeaderToolbar)
+  }, [setHeaderToolbar, todoHeaderToolbar])
+
+  useEffect(() => {
+    return () => {
+      setHeaderToolbar(null)
+    }
+  }, [setHeaderToolbar])
 
   return (
     <section className="page-stack">
-      <Card className="glass-card">
-        <div className="toolbar-row toolbar-row-wrap">
-          <Space wrap>
-            <Button type={todoScope === 'all' ? 'primary' : 'default'} className={todoScope === 'all' ? '' : 'ghost-button'} onClick={() => setTodoScope('all')}>
-              全部
-            </Button>
-            <Button type={todoScope === 'owned' ? 'primary' : 'default'} className={todoScope === 'owned' ? '' : 'ghost-button'} onClick={() => setTodoScope('owned')}>
-              我负责的
-            </Button>
-            <Button type={todoScope === 'created' ? 'primary' : 'default'} className={todoScope === 'created' ? '' : 'ghost-button'} onClick={() => setTodoScope('created')}>
-              我创建的
-            </Button>
-            <Button
-              type={todoScope === 'collaborated' ? 'primary' : 'default'}
-              className={todoScope === 'collaborated' ? '' : 'ghost-button'}
-              onClick={() => setTodoScope('collaborated')}
-            >
-              协作中
-            </Button>
-          </Space>
-          <Space wrap className="todo-toolbar-actions">
-            <Dropdown menu={filterMenu} trigger={['hover']} placement="bottomRight">
-              <Button className="ghost-button" icon={<FilterOutlined />} aria-label="筛选">
-                筛选
-                <DownOutlined />
-              </Button>
-            </Dropdown>
-            <Dropdown menu={sortMenu} trigger={['hover']} placement="bottomRight">
-              <Button className="ghost-button" icon={<SortAscendingOutlined />} aria-label="排序">
-                排序
-                <DownOutlined />
-              </Button>
-            </Dropdown>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openTaskModal}>
-              新建待办
-            </Button>
-          </Space>
-        </div>
-      </Card>
-
       {todoView === 'list' ? (
         <Card
-          className="glass-card"
+          className="glass-card todo-list-surface"
           title={`待办列表 · 共 ${filteredTodoTasks.length} 项`}
           extra={
             <Segmented
+              className="todo-view-switch"
               value={todoView}
               onChange={(value) => setTodoView(value as TodoView)}
               options={[
@@ -200,7 +284,28 @@ function TodosPage() {
         >
           <div className="todo-list-card">
             {loadingList ? <div className="muted-text">正在加载待办...</div> : null}
+            {selectedTodoCount > 0 ? (
+              <div className="todo-batch-toolbar">
+                <Space wrap size={12}>
+                  <span className="todo-batch-summary">已选 {selectedTodoCount} 项</span>
+                  <Button onClick={() => handleBatchStatusUpdate('2')}>批量完成</Button>
+                  <Button onClick={() => handleBatchStatusUpdate('1')}>设为进行中</Button>
+                  <Button danger onClick={handleBatchDelete}>
+                    批量删除
+                  </Button>
+                  <Button type="link" onClick={clearTodoSelection}>
+                    取消选择
+                  </Button>
+                </Space>
+              </div>
+            ) : null}
             <div className="todo-list-header">
+              <Checkbox
+                checked={allPagedTodosSelected}
+                indeterminate={somePagedTodosSelected}
+                aria-label="全选当前页待办"
+                onChange={(event) => toggleSelectAllPagedTodos(event.target.checked)}
+              />
               <span>任务名称</span>
               <span>所属项目</span>
               <span>状态</span>
@@ -223,6 +328,12 @@ function TodosPage() {
                   }
                 }}
               >
+                <Checkbox
+                  checked={selectedTodoIds.includes(task.id)}
+                  aria-label={`选择待办 ${task.title}`}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => toggleTodoSelection(task.id, event.target.checked)}
+                />
                 <div className="todo-cell-main">
                   <div className="todo-row-title">{task.title}</div>
                   <div className="task-meta">
@@ -275,10 +386,11 @@ function TodosPage() {
         </Card>
       ) : (
         <Card
-          className="glass-card"
+          className="glass-card todo-kanban-surface"
           title={todoStatusFilter === 'all' ? '待办看板' : `待办看板 · ${todoStatusFilter}`}
           extra={
             <Segmented
+              className="todo-view-switch"
               value={todoView}
               onChange={(value) => setTodoView(value as TodoView)}
               options={[

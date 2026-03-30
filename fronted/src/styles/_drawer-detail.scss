@@ -6,12 +6,12 @@
 
 .drawer-path,
 .drawer-summary {
-  color: var(--pm-text-muted);
-  font-size: 13px;
+  color: var(--pm-text-secondary);
+  font-size: 14px;
 }
 
 .drawer-main-title {
-  font-size: 30px;
+  font-size: 24px;
   line-height: 1.2;
   font-weight: 700;
   color: var(--pm-text-heading);
@@ -23,7 +23,7 @@
 
 .drawer-title-input .ant-input {
   padding-inline: 12px;
-  font-size: 30px;
+  font-size: 24px;
   line-height: 1.2;
   font-weight: 700;
   color: var(--pm-text-heading);
@@ -61,9 +61,9 @@
 .rich-card,
 .side-panel,
 .timeline-card {
-  padding: 18px;
+  padding: 14px 16px;
   border: 1px solid var(--pm-border-card);
-  border-radius: 18px;
+  border-radius: 8px;
   background: var(--pm-bg-card-soft);
 }
 
@@ -90,7 +90,7 @@
 
 .description-status {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .description-status-idle,
@@ -135,7 +135,7 @@
 }
 
 .attachment-card {
-  border-radius: 16px !important;
+  border-radius: 8px !important;
   background: var(--pm-bg-card-strong) !important;
 }
 
@@ -165,8 +165,8 @@
 }
 
 .comment-time {
-  color: var(--pm-text-muted);
-  font-size: 12px;
+  color: var(--pm-text-secondary);
+  font-size: 14px;
 }
 
 .comment-content {
@@ -187,7 +187,7 @@
 }
 
 .comment-composer-avatar {
-  background: linear-gradient(135deg, #4f7bff, #7d97ff) !important;
+  background: #4d6bff !important;
   color: #fff !important;
 }
 
@@ -196,7 +196,7 @@
   color: var(--pm-text-body);
   background: var(--pm-bg-card-soft);
   border-color: var(--pm-border-field);
-  border-radius: 14px;
+  border-radius: 8px;
 }
 
 .comment-composer-input.ant-input::placeholder {
@@ -206,7 +206,7 @@
 .comment-composer-submit {
   min-width: 84px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: 8px;
 }
 
 .info-row {
@@ -262,5 +262,5 @@
 
 .timeline-scale {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: 14px;
 }

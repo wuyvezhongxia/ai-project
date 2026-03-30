@@ -1,6 +1,6 @@
 .glass-card {
   border: 1px solid var(--pm-border-card) !important;
-  border-radius: 22px !important;
+  border-radius: 10px !important;
   background: var(--pm-bg-card) !important;
   box-shadow: var(--pm-shadow-card);
 }
@@ -32,6 +32,8 @@
   border-color: var(--pm-border-field) !important;
   background: var(--pm-bg-button) !important;
   color: var(--pm-text-primary) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
 }
 
 .full-width {

@@ -9,24 +9,24 @@
 .page-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .dashboard-header {
   position: relative;
   display: grid;
   grid-template-columns: minmax(220px, auto) minmax(0, 1fr);
-  gap: 24px;
-  align-items: end;
-  margin-bottom: 22px;
-  padding: 0 4px 18px;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 0 2px 10px;
 }
 
 .dashboard-header::after {
   content: '';
   position: absolute;
   right: 0;
-  bottom: -10px;
+  bottom: -8px;
   left: 0;
   border-bottom: 1px solid var(--pm-border-row);
 }
@@ -43,15 +43,15 @@
 }
 
 .dashboard-header h1 {
-  margin: 0 0 8px;
-  font-size: 24px;
+  margin: 0 0 4px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--pm-text-heading);
 }
 
 .dashboard-header p {
   margin: 0;
-  color: var(--pm-text-muted);
-  font-size: 13px;
+  color: var(--pm-text-secondary);
+  font-size: 14px;
 }
 

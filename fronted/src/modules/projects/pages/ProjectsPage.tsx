@@ -214,7 +214,7 @@ function ProjectsPage() {
   const projectHeaderToolbar = useMemo(
     () => (
       <div className="toolbar-row toolbar-row-wrap project-page-toolbar">
-        <Space wrap>
+        <Space wrap className="project-page-toolbar-main">
           {['全部项目', '进行中', '已归档'].map((tab) => (
             <Button
               key={tab}
@@ -226,7 +226,7 @@ function ProjectsPage() {
             </Button>
           ))}
         </Space>
-        <Space wrap>
+        <Space wrap className="project-page-toolbar-actions">
           <Dropdown menu={filterMenu} trigger={['hover', 'click']}>
             <Button className="ghost-button" icon={<DownOutlined />}>
               {projectFilter === 'all' ? '筛选' : `筛选 · ${projectFilterLabel}`}
@@ -360,10 +360,11 @@ function ProjectsPage() {
 
       {activeProject ? (
         <Card
-          className="glass-card"
+          className="glass-card project-detail-surface"
           title={`${activeProject.name} · 任务视图`}
           extra={
             <Segmented
+              className="project-view-switch"
               value={projectView}
               onChange={(value) => setProjectView(value as ProjectView)}
               options={[

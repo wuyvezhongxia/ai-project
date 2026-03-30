@@ -2,8 +2,8 @@
 .app-sidebar {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 12px 24px;
+  gap: 12px;
+  padding: 10px 24px;
   background: var(--pm-bg-sidebar);
   border-bottom: 1px solid var(--pm-border-card);
 }
@@ -13,7 +13,7 @@
   flex-direction: row;
   align-items: center;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
   margin-top: 0;
@@ -40,20 +40,19 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: auto;
-  padding: 10px 14px;
-  border: 1px solid var(--pm-border-row-faint);
-  border-radius: 14px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--pm-text-secondary);
-  background: var(--pm-bg-button);
+  background: transparent;
   cursor: pointer;
   text-decoration: none;
   transition:
     background 0.2s ease,
     border-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
+    color 0.2s ease;
 }
 
 .nav-item-icon {
@@ -79,14 +78,13 @@
 .nav-item:hover,
 .nav-item-active {
   color: var(--pm-text-heading);
-  background: var(--pm-gradient-nav-active);
-  border-color: rgba(111, 129, 255, 0.28);
-  transform: translateY(-1px);
+  background: #f4f7fb;
+  border-color: var(--pm-border-row);
 }
 
 .nav-item-active .nav-item-icon {
   opacity: 1;
-  color: #9cb0ff;
+  color: #5f6f95;
 }
 
 .nav-item-active::before {
@@ -97,23 +95,23 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
+  min-width: 20px;
   margin-left: auto;
   padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 12px;
+  border-radius: 4px;
+  font-size: 14px;
   color: var(--pm-text-on-accent);
-  background: rgba(47, 213, 166, 0.85);
+  background: #7aa96b;
 }
 
 .nav-count-danger {
-  background: rgba(255, 107, 126, 0.9);
+  background: #d9898f;
 }
 
 .sidebar-user {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-shrink: 0;
   padding: 8px 0;
   border: 0;
@@ -132,9 +130,9 @@
 
 .sidebar-user .ant-avatar {
   flex-shrink: 0;
-  background: linear-gradient(180deg, #627cff 0%, #4f67e8 100%);
-  color: #f7f9ff;
-  font-size: 22px;
+  background: #c9b06c;
+  color: #fff;
+  font-size: 17px;
   font-weight: 700;
 }
 
@@ -148,7 +146,7 @@
 
 .sidebar-user-name {
   color: var(--pm-text-heading);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.25;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -156,18 +154,18 @@
 
 .sidebar-user-role {
   margin-top: 3px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.25;
-  color: var(--pm-text-muted);
+  color: var(--pm-text-secondary);
 }
 
 .sidebar-primary-action {
   flex-shrink: 0;
-  height: 40px;
-  padding-inline: 16px;
+  height: 34px;
+  padding-inline: 14px;
   border: none;
-  border-radius: 10px;
+  border-radius: 6px;
   font-weight: 600;
-  background: var(--pm-gradient-primary) !important;
-  box-shadow: 0 8px 18px rgba(72, 100, 222, 0.18);
+  background: #5d7cff !important;
+  box-shadow: none;
 }
