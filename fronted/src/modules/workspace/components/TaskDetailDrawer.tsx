@@ -5,7 +5,6 @@ import {
   CopyOutlined,
   EditOutlined,
   EllipsisOutlined,
-  FileTextOutlined,
   LinkOutlined,
   PlusOutlined,
   StarOutlined,
@@ -17,7 +16,6 @@ import {
   Alert,
   Avatar,
   Button,
-  Card,
   DatePicker,
   Drawer,
   Empty,
@@ -86,6 +84,8 @@ function TaskDetailDrawer() {
   const [descriptionState, setDescriptionState] = useState<'idle' | 'editing' | 'saving' | 'saved' | 'error'>('idle')
   const [editingProject, setEditingProject] = useState(false)
   const [editingCollaborators, setEditingCollaborators] = useState(false)
+  const [subtaskComposerOpen, setSubtaskComposerOpen] = useState(false)
+  const [draftSubtaskTitle, setDraftSubtaskTitle] = useState('')
 
   useEffect(() => {
     setDraftTitle(selectedTask?.title ?? '')
@@ -94,6 +94,8 @@ function TaskDetailDrawer() {
     setDescriptionState('idle')
     setEditingProject(false)
     setEditingCollaborators(false)
+    setSubtaskComposerOpen(false)
+    setDraftSubtaskTitle('')
   }, [selectedTask?.description, selectedTask?.id, selectedTask?.title])
 
   useEffect(() => {
@@ -214,6 +216,20 @@ function TaskDetailDrawer() {
     }
   }
 
+  const handleSubtaskComposerCancel = () => {
+    setSubtaskComposerOpen(false)
+    setDraftSubtaskTitle('')
+  }
+
+  const handleSubtaskComposerSubmit = () => {
+    if (!draftSubtaskTitle.trim()) {
+      message.warning('请输入子项标题')
+      return
+    }
+
+    message.info('子项创建接口待接入，当前先保留交互样式')
+  }
+
   return (
     <Drawer
       open={detailOpen}
@@ -298,67 +314,86 @@ function TaskDetailDrawer() {
                   </section>
 
                   <section className="detail-section">
-                    <Flex justify="space-between" align="center">
+                    <Flex justify="space-between" align="center" className="detail-section-heading">
                       <div className="section-title">子任务进度</div>
                       <div className="progress-summary">
                         {completedSubtasks} / {selectedTask.subtasks.length} · {subtaskPercent}%
                       </div>
                     </Flex>
-                    <Progress
-                      percent={subtaskPercent}
-                      showInfo={false}
-                      strokeColor="#20d6a7"
-                      trailColor="var(--pm-chart-trail)"
-                    />
-                    <List
-                      dataSource={selectedTask.subtasks}
-                      locale={{ emptyText: '暂无子任务' }}
-                      renderItem={(item) => (
-                        <List.Item className="subtask-row">
-                          <Space>
-                            {item.done ? (
-                              <CheckCircleFilled className="success-icon" />
-                            ) : (
-                              <ClockCircleOutlined className="pending-icon" />
-                            )}
-                            <span className={item.done ? 'subtask-done' : ''}>{item.title}</span>
-                          </Space>
-                          <Space>
-                            <span className="muted-text">{item.owner || '未分配'}</span>
-                            {item.status ? <Tag color="processing">{item.status}</Tag> : null}
-                          </Space>
-                        </List.Item>
-                      )}
-                    />
-                    <Button icon={<PlusOutlined />} disabled>
-                      添加子任务
-                    </Button>
-                  </section>
-
-                  <section className="detail-section">
-                    <div className="section-title">附件</div>
-                    <div className="attachment-grid">
-                      {selectedTask.attachments.length ? (
-                        selectedTask.attachments.map((item) => (
-                          <Card key={item.id} className="attachment-card" bordered={false}>
-                            <Space direction="vertical" size={4}>
-                              <Space>
-                                <FileTextOutlined />
-                                <a href={item.fileUrl} target="_blank" rel="noreferrer">
-                                  {item.fileName}
-                                </a>
-                              </Space>
-                              <span className="muted-text">{item.metaText}</span>
+                    <div className="subtask-progress-card">
+                      <Progress
+                        percent={subtaskPercent}
+                        showInfo={false}
+                        strokeColor="#20d6a7"
+                        trailColor="var(--pm-chart-trail)"
+                      />
+                    </div>
+                    <div className="rich-card subtask-card">
+                      <List
+                        className="subtask-list"
+                        dataSource={selectedTask.subtasks}
+                        locale={{ emptyText: <div className="subtask-empty">暂无子项</div> }}
+                        renderItem={(item) => (
+                          <List.Item className="subtask-row">
+                            <Space size={10}>
+                              {item.done ? (
+                                <CheckCircleFilled className="success-icon" />
+                              ) : (
+                                <ClockCircleOutlined className="pending-icon" />
+                              )}
+                              <span className={item.done ? 'subtask-done' : ''}>{item.title}</span>
                             </Space>
-                          </Card>
-                        ))
+                            <Space size={10} className="subtask-row-meta">
+                              <span className="muted-text">{item.owner || '未分配'}</span>
+                              {item.status ? <Tag color="processing">{item.status}</Tag> : null}
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                      {subtaskComposerOpen ? (
+                        <div className="subtask-creator">
+                          <div className="subtask-creator-input-row">
+                            <PlusOutlined className="subtask-creator-icon" />
+                            <Input
+                              value={draftSubtaskTitle}
+                              variant="borderless"
+                              className="subtask-creator-input"
+                              placeholder="新建子项"
+                              autoFocus
+                              onChange={(event) => setDraftSubtaskTitle(event.target.value)}
+                              onPressEnter={() => handleSubtaskComposerSubmit()}
+                            />
+                            <Space size={12} className="subtask-creator-actions">
+                              <Button type="text" onClick={handleSubtaskComposerCancel}>
+                                取消
+                              </Button>
+                              <Button
+                                type="text"
+                                className="subtask-creator-submit"
+                                disabled={!draftSubtaskTitle.trim()}
+                                onClick={handleSubtaskComposerSubmit}
+                              >
+                                新建
+                              </Button>
+                            </Space>
+                          </div>
+                          <Space wrap size={[8, 8]} className="subtask-creator-meta">
+                            <Tag bordered={false}>归属项目：{selectedTask.project}</Tag>
+                            <Tag bordered={false}>优先级：{selectedTask.priority}</Tag>
+                            <Tag bordered={false}>负责人：{selectedTask.owner || '未分配'}</Tag>
+                          </Space>
+                        </div>
                       ) : (
-                        <Empty description="暂无附件" />
+                        <Button
+                          type="text"
+                          className="subtask-create-trigger"
+                          icon={<PlusOutlined />}
+                          onClick={() => setSubtaskComposerOpen(true)}
+                        >
+                          新建子项
+                        </Button>
                       )}
                     </div>
-                    <Button icon={<PlusOutlined />} disabled>
-                      上传附件
-                    </Button>
                   </section>
 
                   <section className="detail-section">
@@ -638,28 +673,6 @@ function TaskDetailDrawer() {
               </Space>
             ),
             children: <div className="tab-placeholder">子任务列表已在详情页主视图中展示。</div>,
-          },
-          {
-            key: 'attachments',
-            label: '附件',
-            children: selectedTask.attachments.length ? (
-              <List
-                dataSource={selectedTask.attachments}
-                renderItem={(item) => (
-                  <List.Item>
-                    <Space>
-                      <FileTextOutlined />
-                      <a href={item.fileUrl} target="_blank" rel="noreferrer">
-                        {item.fileName}
-                      </a>
-                      <span className="muted-text">{item.fileSizeText}</span>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <div className="tab-placeholder">暂无附件</div>
-            ),
           },
           {
             key: 'insight',
