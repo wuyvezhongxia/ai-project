@@ -166,6 +166,10 @@ export type ApiWorkloadItem = {
   taskCount: number
   urgentCount: number
   loadPercent: number
+  /** 当前窗口内估算剩余人时（priority+progress 近似） */
+  workloadHours?: number
+  /** 同期产能人时（周=每人每周，月=周×WORKLOAD_MONTH_WEEKS） */
+  capacityHours?: number
 }
 
 export type ApiDashboard = {

@@ -357,7 +357,15 @@ export const mapGanttRows = (
 }
 
 export const mapWorkload = (
-  items: Array<{ userId: string; nickName: string; taskCount: number; urgentCount: number; loadPercent: number }>,
+  items: Array<{
+    userId: string
+    nickName: string
+    taskCount: number
+    urgentCount: number
+    loadPercent: number
+    workloadHours?: number
+    capacityHours?: number
+  }>,
 ): WorkloadMember[] =>
   items.map((item, index) => ({
     userId: item.userId,
@@ -365,6 +373,8 @@ export const mapWorkload = (
     value: item.loadPercent,
     color: workloadColors[index % workloadColors.length],
     urgentCount: item.urgentCount,
+    workloadHours: item.workloadHours,
+    capacityHours: item.capacityHours,
   }))
 
 export const mapProjectOptions = (

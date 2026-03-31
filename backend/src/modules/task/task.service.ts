@@ -14,6 +14,7 @@ import {
 import { fromDbDecimal, fromDbId, toDbId } from "../../common/db-values";
 import { AppError } from "../../common/http";
 import { prisma } from "../../common/prisma";
+import { env } from "../../config/env";
 import type { Attachment, AuthContext, Tag, Task } from "../../common/types";
 import {
   bindAttachmentsSchema,
@@ -117,6 +118,26 @@ const buildDueText = (task: Task) => {
 
   return due.toISOString().slice(0, 10);
 };
+
+/** priority（与 P0–P3）→ 单任务估算总人时，用于团队负载（无 estimatedHours 字段时的近似） */
+const WORKLOAD_PRIORITY_BASE_HOURS: Record<string, number> = {
+  "0": 4,
+  "1": 8,
+  "2": 12,
+  "3": 16,
+};
+
+function workloadBaseHoursForPriority(priority: string | null | undefined): number {
+  if (priority == null || priority === "") return env.WORKLOAD_DEFAULT_HOURS_PER_TASK;
+  return WORKLOAD_PRIORITY_BASE_HOURS[priority] ?? env.WORKLOAD_DEFAULT_HOURS_PER_TASK;
+}
+
+function workloadRemainingHours(task: { priority?: string | null; progress?: Prisma.Decimal | null }): number {
+  const base = workloadBaseHoursForPriority(task.priority ?? null);
+  const pctRaw = fromDbDecimal(task.progress);
+  const pct = pctRaw == null ? 0 : Math.min(100, Math.max(0, pctRaw));
+  return base * (1 - pct / 100);
+}
 
 async function getActiveUser(ctx: AuthContext, userId?: string) {
   if (!userId) {
@@ -1467,6 +1488,10 @@ export const taskService = {
   async workload(ctx: AuthContext, query: WorkloadQuery) {
     const days = query.range === "month" ? 30 : 7;
     const end = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const capacityHours =
+      query.range === "month"
+        ? env.WORKLOAD_CAPACITY_HOURS_PER_USER_WEEK * env.WORKLOAD_MONTH_WEEKS
+        : env.WORKLOAD_CAPACITY_HOURS_PER_USER_WEEK;
 
     const users = await prisma.user.findMany({
       where: {
@@ -1484,18 +1509,29 @@ export const taskService = {
           tenantId: ctx.tenantId,
           delFlag: "0",
           assigneeUserId: user.userId,
-          status: { not: "3" },
+          status: { not: "2" },
           OR: [{ dueTime: null }, { dueTime: { lte: end } }],
+        },
+        select: {
+          priority: true,
+          progress: true,
+          riskLevel: true,
         },
       });
 
       const urgentCount = tasks.filter((task) => ["2", "3"].includes(task.riskLevel ?? "0")).length;
+      const workloadHours = tasks.reduce((sum, t) => sum + workloadRemainingHours(t), 0);
+      const loadPercent =
+        capacityHours > 0 ? Math.min(100, Math.round((workloadHours / capacityHours) * 100)) : 0;
+
       result.push({
         userId: String(user.userId),
         nickName: user.nickName,
         taskCount: tasks.length,
         urgentCount,
-        loadPercent: Math.min(100, tasks.length * 20 + urgentCount * 10),
+        loadPercent,
+        workloadHours: Math.round(workloadHours * 10) / 10,
+        capacityHours: Math.round(capacityHours * 10) / 10,
       });
     }
 

@@ -36,6 +36,14 @@ const envSchema = z.object({
             .filter(Boolean)
         : [],
     ),
+  /**
+   * 团队负载：每人每周「有效产能」人时数（可把 40h×效率系数 写在这里，默认 32≈0.8×40）。
+   */
+  WORKLOAD_CAPACITY_HOURS_PER_USER_WEEK: z.coerce.number().positive().default(32),
+  /** 任务 priority 未识别时，用于估算剩余工时的默认人时/条 */
+  WORKLOAD_DEFAULT_HOURS_PER_TASK: z.coerce.number().positive().default(8),
+  /** workload?range=month 时按几周折算产能（粗略） */
+  WORKLOAD_MONTH_WEEKS: z.coerce.number().positive().default(4),
 });
 
 // 3. 校验环境变量并导出为强类型对象

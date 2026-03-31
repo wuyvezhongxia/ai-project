@@ -141,6 +141,8 @@ export type WorkloadMember = {
   value: number
   color: string
   urgentCount: number
+  workloadHours?: number
+  capacityHours?: number
 }
 
 export type SelectOptionItem = {
