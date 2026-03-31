@@ -354,12 +354,18 @@ async function reconcileParentTaskWithSubtasks(ctx: AuthContext, parentTaskId: b
   if (parent.status === "2" && !allDone) {
     data.status = "1";
     data.finishTime = null;
+  } else if (allDone && parent.status !== "2") {
+    data.status = "2";
+    data.progress = new Prisma.Decimal(100);
+    data.finishTime = new Date();
   }
 
   await prisma.task.update({ where: { id: parent.id }, data });
 
   if (parent.status === "2" && !allDone) {
     await logTaskActivity(ctx, fromDbId(parent.id)!, "task_update", "存在未完成子任务，父任务已从已完成调整为进行中");
+  } else if (allDone && parent.status !== "2") {
+    await logTaskActivity(ctx, fromDbId(parent.id)!, "task_update", "子任务已全部完成，父任务已自动标为已完成");
   }
 
   await refreshProjectProgress(ctx, fromDbId(parent.projectId));
@@ -729,7 +735,9 @@ export const taskService = {
 
   async detail(ctx: AuthContext, id: string) {
     const task = await getTaskOrThrow(ctx, id);
-    return buildTaskView(ctx, toTask(task));
+    await reconcileParentTaskWithSubtasks(ctx, task.id);
+    const taskAfter = await getTaskOrThrow(ctx, id);
+    return buildTaskView(ctx, toTask(taskAfter));
   },
 
   async update(ctx: AuthContext, id: string, input: UpdateTaskInput) {
