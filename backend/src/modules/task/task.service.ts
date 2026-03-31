@@ -314,6 +314,57 @@ async function refreshProjectProgress(ctx: AuthContext, projectId?: string) {
   });
 }
 
+/** 未删除且未完成的子任务数量（status !== "1"） */
+async function countIncompleteActiveSubtasks(ctx: AuthContext, taskId: bigint): Promise<number> {
+  return prisma.subtask.count({
+    where: {
+      tenantId: ctx.tenantId,
+      taskId,
+      delFlag: "0",
+      NOT: { status: "1" },
+    },
+  });
+}
+
+/**
+ * 父任务存在子任务时：按完成比例同步 progress；若父任务已是「已完成」但仍有未完成子项，则退回「进行中」。
+ */
+async function reconcileParentTaskWithSubtasks(ctx: AuthContext, parentTaskId: bigint) {
+  const parent = await prisma.task.findFirst({
+    where: { id: parentTaskId, tenantId: ctx.tenantId, delFlag: "0" },
+  });
+  if (!parent) return;
+
+  const subs = await prisma.subtask.findMany({
+    where: { tenantId: ctx.tenantId, taskId: parentTaskId, delFlag: "0" },
+    select: { status: true },
+  });
+  if (subs.length === 0) return;
+
+  const doneCount = subs.filter((s) => s.status === "1").length;
+  const progress = Math.round((doneCount / subs.length) * 100);
+  const allDone = doneCount === subs.length;
+
+  const data: Prisma.TaskUpdateInput = {
+    progress: new Prisma.Decimal(progress),
+    updateBy: toDbId(ctx.userId),
+    updateTime: new Date(),
+  };
+
+  if (parent.status === "2" && !allDone) {
+    data.status = "1";
+    data.finishTime = null;
+  }
+
+  await prisma.task.update({ where: { id: parent.id }, data });
+
+  if (parent.status === "2" && !allDone) {
+    await logTaskActivity(ctx, fromDbId(parent.id)!, "task_update", "存在未完成子任务，父任务已从已完成调整为进行中");
+  }
+
+  await refreshProjectProgress(ctx, fromDbId(parent.projectId));
+}
+
 async function buildTaskView(ctx: AuthContext, task: Task) {
   const [project, assignee, creator, collaboratorRows, subtaskRows, commentRows, activityRows, relationRows, attachmentRelRows, tagRelRows] =
     await Promise.all([
@@ -687,6 +738,13 @@ export const taskService = {
 
     await ensureProjectAccess(ctx, nextProjectId);
 
+    if (input.status === "2") {
+      const incomplete = await countIncompleteActiveSubtasks(ctx, existing.id);
+      if (incomplete > 0) {
+        throw new AppError("存在未完成的子任务，不能将父任务标为已完成", 400);
+      }
+    }
+
     const nextAssigneeUserId = input.assigneeUserId ?? fromDbId(existing.assigneeUserId);
     const assignee = await getActiveUser(ctx, nextAssigneeUserId);
     const nextCreatorUserId = fromDbId(existing.creatorUserId);
@@ -909,6 +967,7 @@ export const taskService = {
     });
 
     await logTaskActivity(ctx, taskId, "subtask_create", `新增子任务：${input.subtaskName}`);
+    await reconcileParentTaskWithSubtasks(ctx, toDbId(taskId));
     const enriched = await mapSubtasksWithCreators(ctx, [row]);
     return enriched[0]!;
   },
@@ -977,6 +1036,7 @@ export const taskService = {
     } else {
       await logTaskActivity(ctx, String(row.taskId), "subtask_update", `更新子任务：${updated.subtaskName}`);
     }
+    await reconcileParentTaskWithSubtasks(ctx, row.taskId);
     const enriched = await mapSubtasksWithCreators(ctx, [updated]);
     return enriched[0]!;
   },
@@ -1006,6 +1066,7 @@ export const taskService = {
     });
 
     await logTaskActivity(ctx, String(row.taskId), "subtask_delete", `删除子任务：${row.subtaskName}`);
+    await reconcileParentTaskWithSubtasks(ctx, row.taskId);
     return { success: true };
   },
 
