@@ -277,6 +277,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   const panelClass = ['pm-ai-panel', maximized ? 'pm-ai-panel--max' : '', docked ? 'pm-ai-panel--dock' : '']
     .filter(Boolean)
     .join(' ')
+  const lastMessageId = messages[messages.length - 1]?.id
 
   return (
     <>
@@ -332,18 +333,20 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
             </div>
           </header>
 
-          <div className="pm-ai-project-row">
-            <span className="pm-ai-project-label">关联项目</span>
-            <Select
-              className="pm-ai-project-select"
-              size="small"
-              placeholder="选择项目（周报/进度需要）"
-              allowClear
-              options={projectOptions}
-              value={defaultProjectId || undefined}
-              onChange={(v) => setDefaultProjectId(v ?? '')}
-            />
-          </div>
+          {workContext && projectOptions.length > 1 ? (
+            <div className="pm-ai-project-row">
+              <span className="pm-ai-project-label">关联项目</span>
+              <Select
+                className="pm-ai-project-select"
+                size="small"
+                placeholder="选择项目（周报/进度需要）"
+                allowClear
+                options={projectOptions}
+                value={defaultProjectId || undefined}
+                onChange={(v) => setDefaultProjectId(v ?? '')}
+              />
+            </div>
+          ) : null}
 
           <div className="pm-ai-thread" ref={threadRef}>
             {messages.map((m) => (
@@ -352,33 +355,46 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
                   <div className="pm-ai-bubble pm-ai-bubble--user">{m.content}</div>
                 ) : (
                   <div className="pm-ai-bot-block">
-                    <div className="pm-ai-plain">{renderMarkdownAsPlainText(m.content)}</div>
-                    <div className="pm-ai-feedback">
-                      <button
-                        type="button"
-                        className={copiedMessageId === m.id ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
-                        aria-label="复制"
-                        onClick={() => copyText(m.id, m.content)}
-                      >
-                        <CopyOutlined />
-                      </button>
-                      <button
-                        type="button"
-                        className={messageFeedbackMap[m.id] === 'like' ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
-                        aria-label="有用"
-                        onClick={() => toggleFeedback(m.id, 'like')}
-                      >
-                        <LikeOutlined />
-                      </button>
-                      <button
-                        type="button"
-                        className={messageFeedbackMap[m.id] === 'dislike' ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
-                        aria-label="无用"
-                        onClick={() => toggleFeedback(m.id, 'dislike')}
-                      >
-                        <DislikeOutlined />
-                      </button>
-                    </div>
+                    {pending && m.id === lastMessageId && !m.content.trim() ? (
+                      <div className="pm-ai-thinking" aria-live="polite">
+                        <span className="pm-ai-thinking-text">正在思考</span>
+                        <span className="pm-ai-thinking-dots" aria-hidden>
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="pm-ai-plain">{renderMarkdownAsPlainText(m.content)}</div>
+                        <div className="pm-ai-feedback">
+                          <button
+                            type="button"
+                            className={copiedMessageId === m.id ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
+                            aria-label="复制"
+                            onClick={() => copyText(m.id, m.content)}
+                          >
+                            <CopyOutlined />
+                          </button>
+                          <button
+                            type="button"
+                            className={messageFeedbackMap[m.id] === 'like' ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
+                            aria-label="有用"
+                            onClick={() => toggleFeedback(m.id, 'like')}
+                          >
+                            <LikeOutlined />
+                          </button>
+                          <button
+                            type="button"
+                            className={messageFeedbackMap[m.id] === 'dislike' ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
+                            aria-label="无用"
+                            onClick={() => toggleFeedback(m.id, 'dislike')}
+                          >
+                            <DislikeOutlined />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

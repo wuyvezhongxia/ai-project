@@ -298,19 +298,19 @@ export class AiService {
 
       // 任务详情
       todayDueTasks: todayDueTasks.map(t => ({
-        id: t.id,
+        id: String(t.id),
         taskName: t.taskName,
         status: toTaskStatus(t.status),
         priority: t.priority === "0" ? "紧急" : t.priority === "1" ? "高" : "普通",
       })),
       highPriorityTasks: highPriorityTasks.map(t => ({
-        id: t.id,
+        id: String(t.id),
         taskName: t.taskName,
         status: toTaskStatus(t.status),
         dueDate: t.dueTime?.toISOString().slice(0, 10) ?? null,
       })),
       delayedTasks: delayedTasks.map(t => ({
-        id: t.id,
+        id: String(t.id),
         taskName: t.taskName,
         dueDate: t.dueTime?.toISOString().slice(0, 10) ?? null,
         riskLevel: t.riskLevel === "3" ? "高风险" : t.riskLevel === "2" ? "中风险" : "低风险",
@@ -318,7 +318,7 @@ export class AiService {
 
       // 项目信息
       userProjects: userProjects.map(p => ({
-        id: p.id,
+        id: String(p.id),
         projectName: p.projectName,
         status: toProjectStatus(p.status),
         progress: Number(p.progress ?? 0).toFixed(0) + "%",
@@ -471,27 +471,8 @@ export class AiService {
         return this.chat(params, ctx);
       }
 
-      // 尝试使用Skill路由器处理流式请求
-      try {
-        const skillRouter = getSkillRouterAgent();
-        const agentContext = {
-          userId: ctx.userId,
-          tenantId: ctx.tenantId,
-          sessionId: `session_${Date.now()}_${ctx.userId}`,
-          history: await this.buildConversationMessages(ctx, input.bizId),
-          bizId: input.bizId,
-          onToken: onToken,
-        };
-        const agentResult = await skillRouter.routeAndExecute(input.inputText, agentContext);
-        if (agentResult.success) {
-          // 转换结果为AiResponse
-          return this.agentResultToAiResponse(agentResult, startedAt);
-        }
-        // 如果Skill路由器失败，继续使用DeepSeek API
-      } catch (skillError) {
-        console.error('Skill路由器流式处理失败:', skillError);
-        // 继续使用DeepSeek API
-      }
+      // 流式对话优先走底层模型的 stream=true，确保前端可按 token 渐进显示。
+      // （Skill 路由器通常返回整段文本，会导致“先空白等待再整段出现”的体验问题）
 
       const messages = await this.buildModelMessages(input.inputText, ctx, input.bizId);
       const controller = new AbortController();

@@ -195,6 +195,53 @@ $pm-ai-blue-pill: #e8f0ff;
   word-break: break-word;
 }
 
+.pm-ai-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--pm-text-secondary);
+  font-size: 13px;
+}
+
+.pm-ai-thinking-text {
+  letter-spacing: 0.2px;
+}
+
+.pm-ai-thinking-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.pm-ai-thinking-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9aa3b5;
+  opacity: 0.35;
+  animation: pm-ai-thinking-bounce 1.2s ease-in-out infinite;
+}
+
+.pm-ai-thinking-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.pm-ai-thinking-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes pm-ai-thinking-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+
+  40% {
+    transform: translateY(-3px);
+    opacity: 0.95;
+  }
+}
+
 .pm-ai-feedback {
   display: flex;
   gap: 4px;
