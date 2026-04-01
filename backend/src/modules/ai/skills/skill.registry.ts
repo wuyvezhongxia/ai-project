@@ -99,28 +99,43 @@ export class SkillRegistry {
     const keywords: Record<string, string[]> = {
       // 周报相关
       "周报": ["weekly-report", "report", "summary"],
-      "报告": ["weekly-report", "report"],
-      "总结": ["weekly-report", "summary"],
+      "工作报告": ["weekly-report", "report"],
+      "工作总结": ["weekly-report", "summary"],
+      "工作周报": ["weekly-report"],
+      "weekly": ["weekly-report"],
+      "report": ["weekly-report"],
+      "summary": ["weekly-report"],
 
       // 风险相关
       "风险": ["risk-analysis", "risk"],
       "延期": ["risk-analysis", "delay"],
       "危险": ["risk-analysis"],
+      "风险评估": ["risk-analysis"],
+      "风险分析": ["risk-analysis"],
 
       // 任务拆解
       "拆解": ["task-breakdown", "breakdown"],
       "分解": ["task-breakdown"],
       "子任务": ["task-breakdown", "subtask"],
+      "breakdown": ["task-breakdown"],
+      "拆任务": ["task-breakdown"],
 
-      // 负载分析
+      // 负载分析（暂未实现）
       "负载": ["workload-analysis", "workload"],
       "工作量": ["workload-analysis"],
       "团队": ["workload-analysis", "team"],
 
       // 项目进度
       "进度": ["project-progress", "progress"],
+      "项目进度": ["project-progress"],
       "项目": ["project-progress", "project"],
       "健康度": ["project-progress"],
+      "progress": ["project-progress"],
+
+      // 任务洞察（暂未实现，映射到通用聊天）
+      "洞察": ["general-chat"],
+      "insight": ["general-chat"],
+      "任务洞察": ["general-chat"],
     };
 
     // 查找匹配的关键词

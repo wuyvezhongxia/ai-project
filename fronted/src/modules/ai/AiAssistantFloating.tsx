@@ -16,9 +16,10 @@ import {
 import { Button, Flex, Input, message, Modal, Select, Tooltip } from 'antd'
 
 import { useAiAssistantStore } from './ai-assistant.store'
-import { dispatchAiRequest } from './dispatchAiRequest'
+import { dispatchAiRequest, confirmAiAction } from './dispatchAiRequest'
 import type { AiIntent } from './aiIntent'
 import { useProjectOptionsQuery } from '../workspace/services/workspace.queries'
+import { workspaceApi } from '../workspace/services/workspace.api'
 import { useWorkspaceStore } from '../workspace/store/workspace-store'
 
 const { TextArea } = Input
@@ -30,12 +31,37 @@ const QUICK_SKILLS: Array<{ key: string; label: string; intent: AiIntent; prompt
   { key: 'progress', label: '项目进度', intent: 'progress', prompt: '请总结当前项目的进度、风险与下周建议。' },
 ]
 
-function AiAssistantFloating() {
+type AiAssistantFloatingProps = {
+  docked?: boolean
+  fabOnly?: boolean
+  hideFab?: boolean
+}
+
+type MessageFeedback = 'like' | 'dislike'
+
+const renderMarkdownAsPlainText = (content: string) =>
+  content
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false }: AiAssistantFloatingProps) {
   const threadRef = useRef<HTMLDivElement>(null)
   const pendingRef = useRef(false)
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [copiedMessageId, setCopiedMessageId] = useState('')
+  const [messageFeedbackMap, setMessageFeedbackMap] = useState<Record<string, MessageFeedback | undefined>>({})
+  const [confirmationOpen, setConfirmationOpen] = useState(false)
+  const [confirmationData, setConfirmationData] = useState<any>(null)
+  const [confirmationAssistantId, setConfirmationAssistantId] = useState<string>('')
   const prevOpen = useRef(false)
 
   const open = useAiAssistantStore((s) => s.open)
@@ -51,6 +77,8 @@ function AiAssistantFloating() {
   const setDefaultProjectId = useAiAssistantStore((s) => s.setDefaultProjectId)
   const messages = useAiAssistantStore((s) => s.messages)
   const appendMessages = useAiAssistantStore((s) => s.appendMessages)
+  const setMessages = useAiAssistantStore((s) => s.setMessages)
+  const updateMessageContent = useAiAssistantStore((s) => s.updateMessageContent)
   const resetChat = useAiAssistantStore((s) => s.resetChat)
   const lastModelLabel = useAiAssistantStore((s) => s.lastModelLabel)
   const setLastModelLabel = useAiAssistantStore((s) => s.setLastModelLabel)
@@ -58,7 +86,7 @@ function AiAssistantFloating() {
   const selectedTaskId = useWorkspaceStore((s) => s.selectedTaskId)
   const detailOpen = useWorkspaceStore((s) => s.detailOpen)
 
-  const { data: projectOptions = [], isSuccess: projectsLoaded } = useProjectOptionsQuery()
+  const { data: projectOptions = [], isSuccess: projectsLoaded } = useProjectOptionsQuery(!fabOnly)
 
   useEffect(() => {
     if (open && !prevOpen.current && projectsLoaded && projectOptions.length > 0 && !defaultProjectId) {
@@ -66,6 +94,45 @@ function AiAssistantFloating() {
     }
     prevOpen.current = open
   }, [open, projectsLoaded, projectOptions, defaultProjectId, setDefaultProjectId])
+
+  useEffect(() => {
+    if (!open) return
+    let active = true
+
+    const loadHistory = async () => {
+      try {
+        const response = await workspaceApi.aiHistory({
+          bizId: workContext && defaultProjectId ? defaultProjectId : undefined,
+          limit: 50,
+        })
+        if (!active) return
+
+        const loaded = response.records.flatMap((record) => {
+          const items: Array<{ id: string; role: 'user' | 'assistant'; content: string }> = []
+          if (record.inputText?.trim()) {
+            items.push({ id: `h-u-${record.id}`, role: 'user', content: record.inputText })
+          }
+          if (record.outputText?.trim()) {
+            items.push({ id: `h-a-${record.id}`, role: 'assistant', content: record.outputText })
+          }
+          return items
+        })
+
+        if (loaded.length > 0) {
+          setMessages(loaded)
+        } else {
+          resetChat()
+        }
+      } catch {
+        // 历史加载失败时保持当前会话，避免打断输入
+      }
+    }
+
+    void loadHistory()
+    return () => {
+      active = false
+    }
+  }, [open, workContext, defaultProjectId, setMessages, resetChat])
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -84,8 +151,10 @@ function AiAssistantFloating() {
       const trimmed = text.trim()
       if (!trimmed || pendingRef.current) return
 
+      const assistantId = `a-${Date.now()}`
       const userMsg = { id: `u-${Date.now()}`, role: 'user' as const, content: trimmed }
       appendMessages(userMsg)
+      appendMessages({ id: assistantId, role: 'assistant', content: '' })
       setInput('')
       pendingRef.current = true
       setPending(true)
@@ -98,28 +167,78 @@ function AiAssistantFloating() {
           deepThink,
           defaultProjectId,
           selectedTaskId: detailOpen ? selectedTaskId : '',
+          onStreamChunk: (_chunk, full) => {
+            updateMessageContent(assistantId, () => full)
+          },
+          onConfirmationRequired: (data) => {
+            // 暂停当前请求，显示确认对话框
+            setConfirmationData(data)
+            setConfirmationAssistantId(assistantId)
+            setConfirmationOpen(true)
+            // 注意：这里不设置pending为false，因为请求仍在等待确认
+          },
         })
+
+        if (result.requiresConfirmation) {
+          // 已经触发onConfirmationRequired回调，等待用户确认
+          return
+        }
+
         if (result.model) setLastModelLabel(result.model)
-        appendMessages({
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          content: result.output,
-        })
+        updateMessageContent(assistantId, () => result.output)
       } catch (err) {
         const msg = err instanceof Error ? err.message : '请求失败，请稍后重试'
         message.error(msg)
-        appendMessages({
-          id: `e-${Date.now()}`,
-          role: 'assistant',
-          content: `暂时无法完成请求：${msg}`,
-        })
+        updateMessageContent(assistantId, () => `暂时无法完成请求：${msg}`)
       } finally {
-        pendingRef.current = false
-        setPending(false)
+        if (!confirmationOpen) {
+          pendingRef.current = false
+          setPending(false)
+        }
       }
     },
-    [appendMessages, deepThink, defaultProjectId, detailOpen, selectedTaskId, setLastModelLabel, workContext],
+    [appendMessages, deepThink, defaultProjectId, detailOpen, selectedTaskId, setLastModelLabel, updateMessageContent, workContext, confirmationOpen],
   )
+
+  // 处理确认操作
+  const handleConfirm = async () => {
+    if (!confirmationData || !confirmationAssistantId) return
+
+    try {
+      const result = await confirmAiAction(
+        confirmationData.confirmationData?.action || confirmationData.action,
+        confirmationData.confirmationData?.params || confirmationData.params
+      )
+
+      if (result.model) setLastModelLabel(result.model)
+      updateMessageContent(confirmationAssistantId, () => result.output)
+      message.success('操作已确认并执行')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '确认操作失败'
+      message.error(msg)
+      updateMessageContent(confirmationAssistantId, () => `确认操作失败：${msg}`)
+    } finally {
+      // 清理确认状态
+      setConfirmationOpen(false)
+      setConfirmationData(null)
+      setConfirmationAssistantId('')
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
+
+  // 取消确认操作
+  const handleCancel = () => {
+    if (confirmationAssistantId) {
+      updateMessageContent(confirmationAssistantId, () => '操作已取消。')
+    }
+    setConfirmationOpen(false)
+    setConfirmationData(null)
+    setConfirmationAssistantId('')
+    pendingRef.current = false
+    setPending(false)
+    message.info('操作已取消')
+  }
 
   const onSend = () => runSend(input)
 
@@ -130,29 +249,49 @@ function AiAssistantFloating() {
     }
   }
 
-  const copyText = async (t: string) => {
+  const copyText = async (messageId: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(t)
+      await navigator.clipboard.writeText(text)
+      setCopiedMessageId(messageId)
+      window.setTimeout(() => {
+        setCopiedMessageId((prev) => (prev === messageId ? '' : prev))
+      }, 1200)
       message.success('已复制')
     } catch {
       message.error('复制失败')
     }
   }
 
-  const panelClass = maximized ? 'pm-ai-panel pm-ai-panel--max' : 'pm-ai-panel'
+  const toggleFeedback = (messageId: string, feedback: MessageFeedback) => {
+    setMessageFeedbackMap((prev) => ({
+      ...prev,
+      [messageId]: prev[messageId] === feedback ? undefined : feedback,
+    }))
+    if (feedback === 'like') {
+      message.success('感谢反馈')
+      return
+    }
+    message.info('已记录')
+  }
+
+  const panelClass = ['pm-ai-panel', maximized ? 'pm-ai-panel--max' : '', docked ? 'pm-ai-panel--dock' : '']
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <>
-      <button
-        type="button"
-        className={`pm-ai-fab${open ? ' pm-ai-fab--active' : ''}`}
-        aria-label={open ? '关闭智能工作助手' : '打开智能工作助手'}
-        onClick={() => toggleOpen()}
-      >
-        <RobotOutlined />
-      </button>
+      {!hideFab ? (
+        <button
+          type="button"
+          className={`pm-ai-fab${open ? ' pm-ai-fab--active' : ''}`}
+          aria-label={open ? '关闭智能工作助手' : '打开智能工作助手'}
+          onClick={() => toggleOpen()}
+        >
+          <RobotOutlined />
+        </button>
+      ) : null}
 
-      {open ? (
+      {open && !fabOnly ? (
         <div className={panelClass} role="dialog" aria-label="智能工作助手">
           <header className="pm-ai-header">
             <div className="pm-ai-header-brand">
@@ -213,15 +352,30 @@ function AiAssistantFloating() {
                   <div className="pm-ai-bubble pm-ai-bubble--user">{m.content}</div>
                 ) : (
                   <div className="pm-ai-bot-block">
-                    <div className="pm-ai-plain">{m.content}</div>
+                    <div className="pm-ai-plain">{renderMarkdownAsPlainText(m.content)}</div>
                     <div className="pm-ai-feedback">
-                      <button type="button" className="pm-ai-icon-btn" aria-label="复制" onClick={() => copyText(m.content)}>
+                      <button
+                        type="button"
+                        className={copiedMessageId === m.id ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
+                        aria-label="复制"
+                        onClick={() => copyText(m.id, m.content)}
+                      >
                         <CopyOutlined />
                       </button>
-                      <button type="button" className="pm-ai-icon-btn" aria-label="有用" onClick={() => message.success('感谢反馈')}>
+                      <button
+                        type="button"
+                        className={messageFeedbackMap[m.id] === 'like' ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
+                        aria-label="有用"
+                        onClick={() => toggleFeedback(m.id, 'like')}
+                      >
                         <LikeOutlined />
                       </button>
-                      <button type="button" className="pm-ai-icon-btn" aria-label="无用" onClick={() => message.info('已记录')}>
+                      <button
+                        type="button"
+                        className={messageFeedbackMap[m.id] === 'dislike' ? 'pm-ai-icon-btn pm-ai-icon-btn--active' : 'pm-ai-icon-btn'}
+                        aria-label="无用"
+                        onClick={() => toggleFeedback(m.id, 'dislike')}
+                      >
                         <DislikeOutlined />
                       </button>
                     </div>
@@ -303,6 +457,33 @@ function AiAssistantFloating() {
 
       <Modal title="对话历史" open={historyOpen} onCancel={() => setHistoryOpen(false)} footer={null} destroyOnClose>
         <p className="pm-ai-muted">历史会话将与服务端同步的能力正在接入；当前会话仅在本次打开助手期间保留在浏览器内存中。</p>
+      </Modal>
+
+      {/* 确认对话框 */}
+      <Modal
+        title="确认操作"
+        open={confirmationOpen}
+        onOk={handleConfirm}
+        onCancel={handleCancel}
+        okText="确认执行"
+        cancelText="取消"
+        destroyOnClose
+      >
+        {confirmationData ? (
+          <div>
+            <p>{confirmationData.confirmationData?.message || confirmationData.message || '确定要执行此操作吗？'}</p>
+            {confirmationData.confirmationData?.params && (
+              <div style={{ marginTop: '16px', padding: '12px', background: '#f5f5f5', borderRadius: '4px' }}>
+                <p style={{ marginBottom: '8px', fontWeight: '500' }}>操作详情：</p>
+                <pre style={{ fontSize: '12px', overflow: 'auto', maxHeight: '200px', margin: 0 }}>
+                  {JSON.stringify(confirmationData.confirmationData.params, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p>加载确认信息...</p>
+        )}
       </Modal>
     </>
   )

@@ -28,6 +28,7 @@ export interface SkillContext {
   tenantId: string;
   sessionId?: string;
   conversationHistory?: Array<{ role: string; content: string }>;
+  onToken?: (token: string) => void;
   [key: string]: any;
 }
 
@@ -114,6 +115,7 @@ export interface AgentContext {
   tenantId: string;
   sessionId: string;
   history?: Array<{ role: string; content: string }>;
+  onToken?: (token: string) => void;
   [key: string]: any;
 }
 

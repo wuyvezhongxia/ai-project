@@ -31,6 +31,8 @@ type AiAssistantState = {
   setDeepThink: (deepThink: boolean) => void
   setDefaultProjectId: (id: string) => void
   appendMessages: (...items: AiChatMessage[]) => void
+  setMessages: (items: AiChatMessage[]) => void
+  updateMessageContent: (id: string, updater: (prev: string) => string) => void
   resetChat: () => void
   setLastModelLabel: (label: string | null) => void
 }
@@ -51,6 +53,11 @@ export const useAiAssistantStore = create<AiAssistantState>((set) => ({
   setDeepThink: (deepThink) => set({ deepThink }),
   setDefaultProjectId: (defaultProjectId) => set({ defaultProjectId }),
   appendMessages: (...items) => set((s) => ({ messages: [...s.messages, ...items] })),
+  setMessages: (items) => set({ messages: items }),
+  updateMessageContent: (id, updater) =>
+    set((s) => ({
+      messages: s.messages.map((item) => (item.id === id ? { ...item, content: updater(item.content) } : item)),
+    })),
   resetChat: () => set({ messages: welcomeMessages(), lastModelLabel: null }),
   setLastModelLabel: (lastModelLabel) => set({ lastModelLabel }),
 }))

@@ -646,6 +646,132 @@
   border-radius: 10px;
 }
 
+.task-insight-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.task-insight-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-insight-meta {
+  color: var(--pm-text-secondary);
+  font-size: 13px;
+}
+
+.task-insight-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pm-text-secondary);
+  font-size: 13px;
+}
+
+.task-insight-content {
+  padding: 14px 16px;
+  border: 1px solid var(--pm-border-card);
+  border-radius: 10px;
+  color: var(--pm-text-body);
+  font-size: 14px;
+  line-height: 1.72;
+  background: #fff;
+  white-space: pre-wrap;
+}
+
+.task-insight-structured {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.task-insight-card {
+  padding: 12px 14px;
+  border: 1px solid var(--pm-border-card);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.task-insight-card h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--pm-text-heading);
+}
+
+.task-insight-card p {
+  margin: 0;
+  color: var(--pm-text-body);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.task-insight-list,
+.task-insight-checklist,
+.task-insight-action-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--pm-text-body);
+}
+
+.task-insight-list li,
+.task-insight-checklist li {
+  margin-bottom: 6px;
+  line-height: 1.55;
+}
+
+.task-insight-action-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.task-insight-action-item {
+  padding: 8px 10px;
+  border: 1px solid var(--pm-border-row);
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.task-insight-action-item + .task-insight-action-item {
+  margin-top: 8px;
+}
+
+.task-insight-action-main {
+  color: var(--pm-text-heading);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.task-insight-action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--pm-text-secondary);
+  font-size: 12px;
+}
+
+.task-insight-action-meta .ant-tag {
+  margin-inline-end: 0;
+  font-size: 12px;
+}
+
+.task-insight-empty {
+  color: var(--pm-text-muted) !important;
+}
+
+.task-insight-confidence {
+  margin-top: 8px !important;
+  color: var(--pm-text-secondary) !important;
+  font-size: 12px !important;
+}
+
 .comment-mentions-dropdown {
   min-width: 240px;
   padding: 8px;

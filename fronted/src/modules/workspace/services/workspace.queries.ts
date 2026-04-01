@@ -181,10 +181,11 @@ export const useTaskDetailQuery = (taskId: string) =>
     select: (task) => mapTaskDetailToView(task),
   })
 
-export const useProjectOptionsQuery = () =>
+export const useProjectOptionsQuery = (enabled = true) =>
   useQuery<Array<{ id: string; projectName: string; status?: string }>, Error, SelectOptionItem[]>({
     queryKey: workspaceQueryKeys.projectOptions,
     queryFn: workspaceApi.getProjectOptions,
+    enabled,
     select: (items) => mapProjectOptions(items),
   })
 

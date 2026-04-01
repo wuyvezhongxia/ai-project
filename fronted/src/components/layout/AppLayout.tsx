@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import AppSidebar from './AppSidebar'
 import PageHeader from './PageHeader'
+import AiAssistantFloating from '../../modules/ai/AiAssistantFloating'
+import { useAiAssistantStore } from '../../modules/ai/ai-assistant.store'
 import ProjectCreateModal from '../../modules/projects/components/ProjectCreateModal'
 import TaskCreateModal from '../../modules/workspace/components/TaskCreateModal'
 import TaskDetailDrawer from '../../modules/workspace/components/TaskDetailDrawer'
@@ -29,6 +31,7 @@ function AppLayout() {
   const isDashboardPage = location.pathname === '/' || location.pathname.startsWith('/dashboard')
   const isTodosPage = location.pathname.startsWith('/todos')
   const isProjectsPage = location.pathname.startsWith('/projects')
+  const aiAssistantOpen = useAiAssistantStore((s) => s.open)
   const openTaskModal = useWorkspaceStore((state) => state.openTaskModal)
   const currentPage = pageMeta[getPageKeyFromPath(location.pathname)]
   const handlePrimaryAction = openTaskModal
@@ -54,7 +57,7 @@ function AppLayout() {
   return (
     <div className="app-shell">
       <AppSidebar actionLabel={currentPage.actionLabel} onActionClick={handlePrimaryAction} />
-      <div className="app-content">
+      <div className={aiAssistantOpen ? 'app-content app-content--with-ai' : 'app-content'}>
         <main className="dashboard-shell">
           <PageHeader
             title={currentPage.title}
@@ -63,11 +66,17 @@ function AppLayout() {
           />
           <Outlet context={{ setHeaderToolbar }} />
         </main>
+        {aiAssistantOpen ? (
+          <aside className="app-ai-dock">
+            <AiAssistantFloating docked hideFab />
+          </aside>
+        ) : null}
       </div>
 
       <ProjectCreateModal />
       <TaskCreateModal />
       <TaskDetailDrawer />
+      <AiAssistantFloating fabOnly />
     </div>
   )
 }

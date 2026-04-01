@@ -186,6 +186,20 @@ export type ApiDashboard = {
   }
 }
 
+export type ApiTaskInsight = {
+  summary: string
+  risks: string[]
+  blockers: string[]
+  nextActions: Array<{
+    action: string
+    owner?: string
+    due?: string
+    priority?: 'high' | 'medium' | 'low'
+  }>
+  todayChecklist: string[]
+  confidence?: number
+}
+
 export const workspaceApi = {
   getAuthContext: () =>
     apiRequest<{
@@ -314,6 +328,7 @@ export const workspaceApi = {
     apiRequest<{
       success: boolean;
       output: string;
+      insight?: ApiTaskInsight;
       recordId: string;
     }>('/api/ai/task-insight', {
       method: 'POST',
@@ -329,4 +344,22 @@ export const workspaceApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  aiHistory: (params?: { bizId?: string; limit?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.bizId) query.set('bizId', params.bizId)
+    if (params?.limit) query.set('limit', String(params.limit))
+    const suffix = query.toString()
+
+    return apiRequest<{
+      records: Array<{
+        id: string
+        bizType: string
+        bizId?: string
+        inputText: string
+        outputText?: string
+        createTime: string
+      }>
+    }>(`/api/ai/history${suffix ? `?${suffix}` : ''}`)
+  },
 }

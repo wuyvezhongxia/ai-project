@@ -7,6 +7,31 @@
 }
 
 .app-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
   min-width: 0;
   padding: 20px 24px 28px;
+}
+
+.app-content--with-ai {
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 34vw, 560px);
+}
+
+.app-ai-dock {
+  position: sticky;
+  top: 20px;
+  align-self: start;
+  height: calc(100vh - 116px);
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .app-content--with-ai {
+    grid-template-columns: 1fr;
+  }
+
+  .app-ai-dock {
+    height: min(72vh, 640px);
+  }
 }

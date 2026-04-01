@@ -63,6 +63,17 @@ $pm-ai-blue-pill: #e8f0ff;
   height: min(720px, calc(100vh - 100px));
 }
 
+.pm-ai-panel--dock {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  z-index: 1;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border-radius: 16px;
+}
+
 .pm-ai-header {
   display: flex;
   align-items: flex-start;
@@ -209,6 +220,11 @@ $pm-ai-blue-pill: #e8f0ff;
   &:hover {
     background: var(--pm-bg-hover);
     color: var(--pm-text-secondary);
+  }
+
+  &--active {
+    background: rgba(30, 184, 122, 0.15);
+    color: #0d7a52;
   }
 }
 

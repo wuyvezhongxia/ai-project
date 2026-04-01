@@ -4,7 +4,7 @@ import { z } from "zod";
 import { idSchema, toDbId } from "../../common/db-values";
 import { toAiRecord } from "../../common/db-mappers";
 import { prisma } from "../../common/prisma";
-import { ok, parseBody, AppError } from "../../common/http";
+import { ok, parseBody, parseQuery, AppError } from "../../common/http";
 import type { AuthedRequest } from "../../common/types";
 import { AiService, type ChatParams, type SkillParams } from "./ai.service";
 
@@ -16,6 +16,11 @@ const aiSchema = z.object({
 const skillSchema = z.object({
   bizId: idSchema,
   inputText: z.string().min(1),
+});
+
+const aiHistoryQuerySchema = z.object({
+  bizId: idSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(30),
 });
 
 // 创建AI服务实例
@@ -102,6 +107,49 @@ export const aiChat = async (req: AuthedRequest, res: Response): Promise<void> =
   );
 };
 
+// AI聊天（SSE流式）
+export const aiChatStream = async (req: AuthedRequest, res: Response): Promise<void> => {
+  if (!aiService.isAvailable()) {
+    throw new AppError("AI功能暂不可用，请检查配置或联系管理员", 503);
+  }
+
+  const body = parseBody(aiSchema, req.body);
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  const aiResult = await aiService.streamChat(body, req.ctx, (token) => {
+    res.write(`data: ${JSON.stringify({ type: "chunk", content: token })}\n\n`);
+  });
+  if (!aiResult.success) {
+    res.write(`data: ${JSON.stringify({ type: "error", message: aiResult.error || "AI处理失败" })}\n\n`);
+    res.end();
+    return;
+  }
+
+  const record = await createAiRecord(
+    req,
+    "chat",
+    body.inputText,
+    aiResult.output,
+    body.bizId,
+    aiResult.metadata,
+  );
+
+  res.write(
+    `data: ${JSON.stringify({
+      type: "done",
+      recordId: record.id,
+      model: aiResult.metadata?.model ?? null,
+      suggestions: aiResult.suggestions ?? [],
+      content: aiResult.output,
+    })}\n\n`,
+  );
+  res.end();
+};
+
 // 周报生成
 export const weeklyReport = async (req: AuthedRequest, res: Response): Promise<void> => {
   await handleAiRequest(req, res, "weekly_report", (params, ctx) =>
@@ -133,6 +181,72 @@ export const projectProgress = async (req: AuthedRequest, res: Response): Promis
 // 任务洞察（暂时使用通用聊天）
 export const taskInsight = async (req: AuthedRequest, res: Response): Promise<void> => {
   await handleAiRequest(req, res, "task_insight", (params, ctx) =>
-    aiService.chat(params as ChatParams, ctx)
+    aiService.generateTaskInsight(params as SkillParams, ctx)
   );
+};
+
+// AI历史会话（按用户与租户隔离，可选按项目bizId筛选）
+export const aiHistory = async (req: AuthedRequest, res: Response): Promise<void> => {
+  const query = parseQuery(aiHistoryQuerySchema, req.query);
+  const where = {
+    tenantId: req.ctx.tenantId,
+    createBy: toDbId(req.ctx.userId),
+    ...(query.bizId ? { bizId: toDbId(query.bizId) } : {}),
+  };
+
+  const rows = await prisma.aiRecord.findMany({
+    where,
+    orderBy: { createTime: "desc" },
+    take: query.limit,
+  });
+
+  const records = rows.reverse().map((row) => toAiRecord(row));
+  ok(res, { records });
+};
+
+// AI操作确认
+export const aiConfirm = async (req: AuthedRequest, res: Response): Promise<void> => {
+  try {
+    // 检查AI功能是否可用
+    if (!aiService.isAvailable()) {
+      throw new AppError("AI功能暂不可用，请检查配置或联系管理员", 503);
+    }
+
+    const schema = z.object({
+      action: z.string().min(1),
+      params: z.record(z.string(), z.any()),
+    });
+
+    const body = parseBody(schema, req.body);
+
+    // 调用AI服务确认方法
+    const aiResult = await aiService.confirmAction(body.action, body.params, req.ctx);
+
+    if (!aiResult.success) {
+      throw new AppError(aiResult.error || "确认操作执行失败", 500);
+    }
+
+    // 创建记录（可选，记录确认操作）
+    const record = await createAiRecord(
+      req,
+      "confirm_" + body.action,
+      JSON.stringify(body.params),
+      aiResult.output,
+      undefined,
+      aiResult.metadata,
+    );
+
+    // 返回结果
+    ok(res, {
+      ...aiResult,
+      recordId: record.id,
+    });
+
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    console.error("AI确认操作处理失败:", error);
+    throw new AppError(`确认操作失败: ${error instanceof Error ? error.message : "未知错误"}`, 500);
+  }
 };

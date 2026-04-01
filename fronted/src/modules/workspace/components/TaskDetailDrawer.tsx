@@ -1,4 +1,4 @@
-import { CalendarOutlined, EditOutlined, PlusOutlined, UserOutlined } from '@ant-design/icons'
+import { CalendarOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UserOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -29,12 +29,14 @@ import {
   useCreateSubtaskMutation,
   useCreateTaskCommentMutation,
   useTaskDetailQuery,
+  useUpdateTaskStatusMutation,
   useUpdateSubtaskMutation,
   useUpdateTaskMutation,
   useUserOptionsQuery,
 } from '../services/workspace.queries'
 import { ApiClientError } from '../../../lib/http/api-client'
-import type { UpdateSubtaskPayload } from '../services/workspace.api'
+import type { ApiTaskInsight, UpdateSubtaskPayload } from '../services/workspace.api'
+import { workspaceApi } from '../services/workspace.api'
 import type { Subtask } from '../types'
 
 const statusOptions = [
@@ -95,6 +97,46 @@ const subtaskSelectPopupStyles: { popup: { root: CSSProperties } } = {
   popup: { root: { zIndex: 1100 } },
 }
 
+const parseInsightFromOutput = (output: string): ApiTaskInsight | null => {
+  const fenced = output.match(/```json\s*([\s\S]*?)```/i)
+  const jsonText = fenced?.[1] ?? (() => {
+    const start = output.indexOf('{')
+    const end = output.lastIndexOf('}')
+    return start >= 0 && end > start ? output.slice(start, end + 1) : ''
+  })()
+
+  if (!jsonText.trim()) return null
+  try {
+    const parsed = JSON.parse(jsonText)
+    if (!parsed || typeof parsed !== 'object') return null
+    return {
+      summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      risks: Array.isArray(parsed.risks) ? parsed.risks.filter((item) => typeof item === 'string') : [],
+      blockers: Array.isArray(parsed.blockers) ? parsed.blockers.filter((item) => typeof item === 'string') : [],
+      nextActions: Array.isArray(parsed.nextActions)
+        ? parsed.nextActions
+            .filter((item) => item && typeof item === 'object')
+            .map((item) => ({
+              action: typeof item.action === 'string' ? item.action : '',
+              owner: typeof item.owner === 'string' ? item.owner : undefined,
+              due: typeof item.due === 'string' ? item.due : undefined,
+              priority:
+                item.priority === 'high' || item.priority === 'medium' || item.priority === 'low'
+                  ? item.priority
+                  : undefined,
+            }))
+            .filter((item) => item.action)
+        : [],
+      todayChecklist: Array.isArray(parsed.todayChecklist)
+        ? parsed.todayChecklist.filter((item) => typeof item === 'string')
+        : [],
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
 function TaskDetailDrawer() {
   const detailOpen = useWorkspaceStore((state) => state.detailOpen)
   const closeTaskDetail = useWorkspaceStore((state) => state.closeTaskDetail)
@@ -103,6 +145,7 @@ function TaskDetailDrawer() {
   const { data: projectOptions = [] } = useProjectOptionsQuery()
   const { data: userOptions = [] } = useUserOptionsQuery()
   const updateTaskMutation = useUpdateTaskMutation()
+  const updateTaskStatusMutation = useUpdateTaskStatusMutation()
   const createSubtaskMutation = useCreateSubtaskMutation()
   const updateSubtaskMutation = useUpdateSubtaskMutation()
   const createTaskCommentMutation = useCreateTaskCommentMutation()
@@ -117,6 +160,12 @@ function TaskDetailDrawer() {
   const [subtaskComposerOpen, setSubtaskComposerOpen] = useState(false)
   const [draftSubtaskTitle, setDraftSubtaskTitle] = useState('')
   const [activeSubtaskId, setActiveSubtaskId] = useState<string | null>(null)
+  const [insightLoading, setInsightLoading] = useState(false)
+  const [insightContent, setInsightContent] = useState('')
+  const [insightData, setInsightData] = useState<ApiTaskInsight | null>(null)
+  const [insightError, setInsightError] = useState('')
+  const [insightGeneratedAt, setInsightGeneratedAt] = useState('')
+  const [insightRequested, setInsightRequested] = useState(false)
 
   useEffect(() => {
     setDraftTitle(selectedTask?.title ?? '')
@@ -129,6 +178,12 @@ function TaskDetailDrawer() {
     setSubtaskComposerOpen(false)
     setDraftSubtaskTitle('')
     setActiveSubtaskId(null)
+    setInsightLoading(false)
+    setInsightContent('')
+    setInsightData(null)
+    setInsightError('')
+    setInsightGeneratedAt('')
+    setInsightRequested(false)
   }, [selectedTask?.description, selectedTask?.id, selectedTask?.title])
 
   useEffect(() => {
@@ -176,6 +231,29 @@ function TaskDetailDrawer() {
   )
   const editableStatusValue =
     selectedTask.rawStatus === '2' ? '已完成' : selectedTask.rawStatus === '0' ? '待开始' : '进行中'
+  const isCompletedTask = selectedTask.rawStatus === '2' || selectedTask.status === '已完成'
+  const isOverdueTask = selectedTask.dueCategory === 'overdue'
+  const isHighRiskTask = selectedTask.riskLevel === '3'
+  const taskProgress = selectedTask.progress ?? 0
+  const detailInsightAlert = isCompletedTask
+    ? {
+        type: 'success' as const,
+        message: '完成状态',
+        description: isOverdueTask
+          ? `任务已完成（曾延期），当前进度 ${taskProgress}% ，截止信息：${selectedTask.dueText}。`
+          : `任务已完成，当前进度 ${taskProgress}% ，截止信息：${selectedTask.dueText}。`,
+      }
+    : isHighRiskTask || isOverdueTask
+      ? {
+          type: 'error' as const,
+          message: '高风险提示',
+          description: `当前任务状态为 ${selectedTask.status}，进度 ${taskProgress}% ，截止信息：${selectedTask.dueText}。`,
+        }
+      : {
+          type: 'warning' as const,
+          message: '风险提示',
+          description: `当前任务状态为 ${selectedTask.status}，进度 ${taskProgress}% ，截止信息：${selectedTask.dueText}。`,
+        }
   const mentionCandidateMap = new Map<string, MentionCandidate>()
 
   const registerMentionCandidate = (candidate?: Partial<MentionCandidate>) => {
@@ -276,6 +354,24 @@ function TaskDetailDrawer() {
       afterSuccess?.()
     } catch {
       message.error('任务更新失败，请稍后重试')
+    }
+  }
+
+  const handleStatusUpdate = async (statusLabel: (typeof statusOptions)[number]['value']) => {
+    const nextStatus = statusValueMap[statusLabel]
+    try {
+      await updateTaskStatusMutation.mutateAsync({
+        taskId: selectedTask.id,
+        status: nextStatus,
+      })
+    } catch (err) {
+      const detail =
+        err instanceof ApiClientError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : '未知错误'
+      message.error(`状态更新失败：${detail}`)
     }
   }
 
@@ -517,6 +613,200 @@ function TaskDetailDrawer() {
     </div>
   )
 
+  const generateTaskInsight = async () => {
+    if (insightLoading) return
+    setInsightLoading(true)
+    setInsightError('')
+    setInsightRequested(true)
+
+    const subtaskSnapshot =
+      selectedTask.subtasks.length > 0
+        ? selectedTask.subtasks
+            .slice(0, 12)
+            .map((subtask, index) => `${index + 1}. ${subtask.title}（状态:${subtask.rawStatus}，优先级:${subtask.priority}）`)
+            .join('\n')
+        : '暂无子项'
+    const commentSnapshot =
+      selectedTask.comments.length > 0
+        ? selectedTask.comments
+            .slice(-3)
+            .map((comment, index) => `${index + 1}. ${comment.userName}: ${comment.content}`)
+            .join('\n')
+        : '暂无评论'
+    const inputText = [
+      '请基于以下任务数据输出 AI 洞察，要求：',
+      '1) 先给出总体结论',
+      '2) 输出 3-5 条关键风险/阻塞点',
+      '3) 输出下一步可执行建议（按优先级）',
+      '4) 结尾给出一个负责人可直接执行的今日行动清单',
+      '',
+      `任务标题：${selectedTask.title}`,
+      `任务描述：${selectedTask.description || '无'}`,
+      `任务状态：${selectedTask.status}（raw:${selectedTask.rawStatus}）`,
+      `优先级：${selectedTask.priority}`,
+      `风险等级：${selectedTask.riskLevel}`,
+      `进度：${selectedTask.progress ?? 0}%`,
+      `截止信息：${selectedTask.dueText}`,
+      `负责人：${selectedTask.owner}`,
+      `所属项目：${selectedTask.project}`,
+      '',
+      '子项快照：',
+      subtaskSnapshot,
+      '',
+      '最新评论：',
+      commentSnapshot,
+    ].join('\n')
+
+    try {
+      const response = await workspaceApi.aiTaskInsight({
+        bizId: selectedTask.projectId || selectedTask.id,
+        inputText,
+      })
+      const output = response.output?.trim() || '暂未生成有效洞察，请稍后重试。'
+      setInsightContent(output)
+      setInsightData(response.insight ?? parseInsightFromOutput(output))
+      setInsightGeneratedAt(dayjs().format('YYYY-MM-DD HH:mm:ss'))
+    } catch (err) {
+      const detail =
+        err instanceof ApiClientError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : '未知错误'
+      setInsightError(detail)
+    } finally {
+      setInsightLoading(false)
+    }
+  }
+
+  const handleTabChange = (nextTabKey: string) => {
+    setActiveTabKey(nextTabKey)
+    if (nextTabKey === 'insight' && !insightRequested && !insightLoading) {
+      void generateTaskInsight()
+    }
+  }
+
+  const insightPanel = (
+    <div className="task-insight-pane">
+      <div className="task-insight-toolbar">
+        <div className="task-insight-meta">
+          {insightGeneratedAt ? `最近生成：${insightGeneratedAt}` : '基于当前任务实时数据生成洞察'}
+        </div>
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          loading={insightLoading}
+          onClick={() => void generateTaskInsight()}
+        >
+          {insightContent ? '重新生成' : '生成洞察'}
+        </Button>
+      </div>
+
+      {insightLoading ? (
+        <div className="task-insight-loading">
+          <Spin size="small" />
+          <span>正在生成 AI 洞察...</span>
+        </div>
+      ) : null}
+
+      {!insightLoading && insightError ? (
+        <Alert
+          type="error"
+          showIcon
+          message="洞察生成失败"
+          description={insightError}
+          action={
+            <Button size="small" type="link" onClick={() => void generateTaskInsight()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
+      {!insightLoading && !insightError && insightContent ? (
+        insightData ? (
+          <div className="task-insight-structured">
+            <section className="task-insight-card">
+              <h4>总体结论</h4>
+              <p>{insightData.summary || '暂无结论'}</p>
+            </section>
+
+            <section className="task-insight-card">
+              <h4>关键风险</h4>
+              {insightData.risks.length > 0 ? (
+                <ul className="task-insight-list">
+                  {insightData.risks.map((risk, index) => (
+                    <li key={`risk-${index}`}>{risk}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="task-insight-empty">暂无明显风险</p>
+              )}
+            </section>
+
+            <section className="task-insight-card">
+              <h4>阻塞点</h4>
+              {insightData.blockers.length > 0 ? (
+                <ul className="task-insight-list">
+                  {insightData.blockers.map((blocker, index) => (
+                    <li key={`blocker-${index}`}>{blocker}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="task-insight-empty">暂无阻塞点</p>
+              )}
+            </section>
+
+            <section className="task-insight-card">
+              <h4>下一步行动</h4>
+              {insightData.nextActions.length > 0 ? (
+                <ul className="task-insight-action-list">
+                  {insightData.nextActions.map((item, index) => (
+                    <li key={`action-${index}`} className="task-insight-action-item">
+                      <div className="task-insight-action-main">{item.action}</div>
+                      <div className="task-insight-action-meta">
+                        {item.priority ? <Tag>{item.priority === 'high' ? '高优' : item.priority === 'medium' ? '中优' : '低优'}</Tag> : null}
+                        {item.owner ? <span>负责人：{item.owner}</span> : null}
+                        {item.due ? <span>截止：{item.due}</span> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="task-insight-empty">暂无行动建议</p>
+              )}
+            </section>
+
+            <section className="task-insight-card">
+              <h4>今日行动清单</h4>
+              {insightData.todayChecklist.length > 0 ? (
+                <ul className="task-insight-checklist">
+                  {insightData.todayChecklist.map((item, index) => (
+                    <li key={`check-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="task-insight-empty">暂无今日清单</p>
+              )}
+              {typeof insightData.confidence === 'number' ? (
+                <p className="task-insight-confidence">置信度：{Math.round(insightData.confidence * 100)}%</p>
+              ) : null}
+            </section>
+          </div>
+        ) : (
+          <div className="task-insight-content">{insightContent}</div>
+        )
+      ) : null}
+
+      {!insightLoading && !insightError && !insightContent ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="暂无洞察内容，点击右上角「生成洞察」获取建议"
+        />
+      ) : null}
+    </div>
+  )
+
   return (
     <Drawer
       open={detailOpen}
@@ -569,7 +859,7 @@ function TaskDetailDrawer() {
         <div className="drawer-tabs-shell">
           <Tabs
             activeKey={activeTabKey}
-            onChange={setActiveTabKey}
+            onChange={handleTabChange}
             items={[
           {
             key: 'detail',
@@ -604,17 +894,21 @@ function TaskDetailDrawer() {
                   <section className="detail-section subtask-section">
                     <Flex justify="space-between" align="center" className="detail-section-heading">
                       <div className="section-title">子任务进度</div>
-                      <div className="progress-summary">
-                        {completedSubtasks} / {selectedTask.subtasks.length} · {subtaskPercent}%
-                      </div>
+                      {selectedTask.subtasks.length > 0 ? (
+                        <div className="progress-summary">
+                          {completedSubtasks} / {selectedTask.subtasks.length} · {subtaskPercent}%
+                        </div>
+                      ) : null}
                     </Flex>
-                    <Progress
-                      percent={subtaskPercent}
-                      showInfo={false}
-                      strokeColor="#1677ff"
-                      trailColor="#f0f0f0"
-                      className="subtask-progress"
-                    />
+                    {selectedTask.subtasks.length > 0 ? (
+                      <Progress
+                        percent={subtaskPercent}
+                        showInfo={false}
+                        strokeColor="#1677ff"
+                        trailColor="#f0f0f0"
+                        className="subtask-progress"
+                      />
+                    ) : null}
                     <div className="rich-card subtask-card">
                       <div className="subtask-table-wrap">
                         <Table<Subtask>
@@ -732,7 +1026,8 @@ function TaskDetailDrawer() {
                           size="small"
                           className="info-row-select"
                           value={editableStatusValue}
-                          onChange={(value) => void handleTaskUpdate({ status: statusValueMap[value] })}
+                          loading={updateTaskStatusMutation.isPending}
+                          onChange={(value) => void handleStatusUpdate(value)}
                           options={statusOptions}
                         />
                       </div>
@@ -841,10 +1136,10 @@ function TaskDetailDrawer() {
                   <section className="detail-section">
                     <div className="section-title">AI 智能洞察</div>
                     <Alert
-                      type={selectedTask.riskLevel === '3' ? 'error' : 'warning'}
+                      type={detailInsightAlert.type}
                       showIcon
-                      message="风险提示"
-                      description={`当前任务状态为 ${selectedTask.status}，进度 ${selectedTask.progress ?? 0}% ，截止信息：${selectedTask.dueText}。`}
+                      message={detailInsightAlert.message}
+                      description={detailInsightAlert.description}
                     />
                   </section>
                 </div>
@@ -884,7 +1179,7 @@ function TaskDetailDrawer() {
           {
             key: 'insight',
             label: 'AI 洞察',
-            children: <div className="tab-placeholder">AI 洞察后续可接入 `POST /ai/task-insight`。</div>,
+            children: insightPanel,
           },
             ]}
           />

@@ -1,15 +1,18 @@
 import { Router } from "express";
 
 import { asyncHandler } from "../../common/http";
-import { aiChat, delayAnalysis, projectProgress, taskBreakdown, taskInsight, weeklyReport } from "./ai.controller";
+import { aiChat, aiChatStream, aiHistory, delayAnalysis, projectProgress, taskBreakdown, taskInsight, weeklyReport, aiConfirm } from "./ai.controller";
 
 const router = Router();
 
 router.post("/chat", asyncHandler(aiChat));
+router.post("/chat/stream", asyncHandler(aiChatStream));
+router.get("/history", asyncHandler(aiHistory));
 router.post("/weekly-report", asyncHandler(weeklyReport));
 router.post("/task-breakdown", asyncHandler(taskBreakdown));
 router.post("/delay-analysis", asyncHandler(delayAnalysis));
 router.post("/project-progress", asyncHandler(projectProgress));
 router.post("/task-insight", asyncHandler(taskInsight));
+router.post("/confirm", asyncHandler(aiConfirm));
 
 export const aiRouter = router;

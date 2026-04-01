@@ -42,6 +42,8 @@ const getTrendMeta = (text: string) => {
 
 function DashboardPage() {
   const openAiAssistant = useAiAssistantStore((s) => s.setOpen)
+  const aiAssistantOpen = useAiAssistantStore((s) => s.open)
+  const aiMessages = useAiAssistantStore((s) => s.messages)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const { data: dashboard } = useDashboardQuery()
   const { data: mustDoTasks = [], isLoading: loadingMustDo } = useMustDoTodayQuery()
@@ -59,6 +61,13 @@ function DashboardPage() {
   const weeklyTotal = dashboard?.summary?.total ?? 0
   const weeklyCompleted = Math.max(weeklyTotal - (dashboard?.summary?.risk ?? 0), 0)
   const weeklyCompletionRate = weeklyTotal > 0 ? Math.round((weeklyCompleted / weeklyTotal) * 100) : Number.parseInt(statCards[1].value, 10)
+  const recentAssistantMessages = aiMessages
+    .filter((message) => message.id !== 'welcome' && message.content.trim())
+    .slice(-4)
+    .map((message) => ({
+      ...message,
+      content: message.content.length > 110 ? `${message.content.slice(0, 110)}...` : message.content,
+    }))
 
   const resolvedStatCards = [
     { ...statCards[0], value: String(todayTotal), suffix: `已完成 ${todayCompleted} / ${todayTotal} · ${todayCompletionRate}%` },
@@ -218,19 +227,51 @@ function DashboardPage() {
         </div>
 
         <div className="right-column">
-          <Card
-            className="glass-card"
-            title="智能工作助手"
-            extra={
-              <Button type="link" className="section-link-button" onClick={() => openAiAssistant(true)}>
-                打开助手
-              </Button>
-            }
-          >
-            <p className="dashboard-ai-hint">
-              点击右下角绿色悬浮球或此处「打开助手」，使用对话面板进行周报、拆解、风险与项目进度等能力，并与当前租户任务数据联动。
-            </p>
-          </Card>
+          {!aiAssistantOpen ? (
+            <Card
+              className="glass-card dashboard-ai-entry"
+              title="智能工作助手"
+              onClick={() => openAiAssistant(true)}
+              extra={
+                <Button
+                  type="link"
+                  className="section-link-button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openAiAssistant(true)
+                  }}
+                >
+                  打开助手
+                </Button>
+              }
+            >
+              {recentAssistantMessages.length > 0 ? (
+                <div className="dashboard-ai-preview-thread" aria-label="最近对话预览">
+                  {recentAssistantMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={message.role === 'user' ? 'dashboard-ai-preview-row dashboard-ai-preview-row-user' : 'dashboard-ai-preview-row'}
+                    >
+                      <span className="dashboard-ai-preview-role">{message.role === 'user' ? '我' : '助手'}</span>
+                      <div
+                        className={
+                          message.role === 'user'
+                            ? 'dashboard-ai-preview-bubble dashboard-ai-preview-bubble-user'
+                            : 'dashboard-ai-preview-bubble'
+                        }
+                      >
+                        {message.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="dashboard-ai-hint">
+                  点击右下角绿色悬浮球或此处「打开助手」，使用对话面板进行周报、拆解、风险与项目进度等能力，并与当前租户任务数据联动。
+                </p>
+              )}
+            </Card>
+          ) : null}
 
           <Card className="glass-card" title="团队负载速览" extra={<Button type="link" className="section-link-button">详情</Button>}>
             <div className="workload-list">
