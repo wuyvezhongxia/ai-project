@@ -330,3 +330,8 @@ export const useUpdateTaskStatusMutation = () => {
     },
   })
 }
+
+export const useAiChatMutation = () =>
+  useMutation({
+    mutationFn: workspaceApi.aiChat,
+  })

@@ -262,4 +262,71 @@ export const workspaceApi = {
     }),
 
   getUserOptions: () => apiRequest<ApiUserOption[]>('/api/org/users/options'),
+
+  // AI接口
+  aiChat: (payload: { bizId?: string; inputText: string }) =>
+    apiRequest<{
+      success: boolean;
+      output: string;
+      suggestions?: string[];
+      metadata?: {
+        model: string;
+        tokensUsed: number;
+        responseTime: number;
+      };
+      recordId: string;
+    }>('/api/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiWeeklyReport: (payload: { bizId: string; inputText: string }) =>
+    apiRequest<{
+      success: boolean;
+      output: string;
+      recordId: string;
+    }>('/api/ai/weekly-report', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiTaskBreakdown: (payload: { bizId: string; inputText: string }) =>
+    apiRequest<{
+      success: boolean;
+      output: string;
+      recordId: string;
+    }>('/api/ai/task-breakdown', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiRiskAnalysis: (payload: { bizId: string; inputText: string }) =>
+    apiRequest<{
+      success: boolean;
+      output: string;
+      recordId: string;
+    }>('/api/ai/delay-analysis', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiTaskInsight: (payload: { bizId: string; inputText: string }) =>
+    apiRequest<{
+      success: boolean;
+      output: string;
+      recordId: string;
+    }>('/api/ai/task-insight', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiProjectProgress: (payload: { bizId: string; inputText: string }) =>
+    apiRequest<{
+      success: boolean;
+      output: string;
+      recordId: string;
+    }>('/api/ai/project-progress', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 }

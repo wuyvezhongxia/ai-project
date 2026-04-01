@@ -1,4 +1,4 @@
-import type { ISkill, SkillCategory, SkillDiscoveryContext } from "./skill.types";
+import { SkillCategory, type ISkill, type SkillDiscoveryContext } from "./skill.types";
 
 /**
  * Skill注册与发现管理器

@@ -44,6 +44,23 @@ const envSchema = z.object({
   WORKLOAD_DEFAULT_HOURS_PER_TASK: z.coerce.number().positive().default(8),
   /** workload?range=month 时按几周折算产能（粗略） */
   WORKLOAD_MONTH_WEEKS: z.coerce.number().positive().default(4),
+
+  // DeepSeek AI配置
+  DEEPSEEK_API_KEY: z.string().optional(),
+  DEEPSEEK_BASE_URL: z.string().default("https://api.deepseek.com"),
+  DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
+
+  // AI功能开关
+  AI_FEATURE_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
+
+  /** AI请求最大token数 */
+  AI_MAX_TOKENS_PER_REQUEST: z.coerce.number().positive().default(2000),
+
+  /** AI请求超时时间（毫秒） */
+  AI_REQUEST_TIMEOUT: z.coerce.number().positive().default(30000),
 });
 
 // 3. 校验环境变量并导出为强类型对象

@@ -1,15 +1,14 @@
 import {
   CaretDownFilled,
   CaretUpFilled,
-  CheckCircleFilled,
   CheckSquareOutlined,
   ClockCircleOutlined,
   PushpinOutlined,
-  RobotOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
-import { Avatar, Button, Card, Checkbox, Flex, Input, List, Progress, Space, Tag } from 'antd'
-import { aiMessages, statCards } from '../../workspace/data/mock'
+import { Avatar, Button, Card, Checkbox, List, Progress, Space, Tag } from 'antd'
+import { statCards } from '../../workspace/data/mock'
+import { useAiAssistantStore } from '../../ai/ai-assistant.store'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
@@ -42,6 +41,7 @@ const getTrendMeta = (text: string) => {
 }
 
 function DashboardPage() {
+  const openAiAssistant = useAiAssistantStore((s) => s.setOpen)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const { data: dashboard } = useDashboardQuery()
   const { data: mustDoTasks = [], isLoading: loadingMustDo } = useMustDoTodayQuery()
@@ -218,37 +218,18 @@ function DashboardPage() {
         </div>
 
         <div className="right-column">
-          <Card className="glass-card" title="智能工作助手" extra={<span className="muted-text">GPT-4o · 在线</span>}>
-            <div className="assistant-panel">
-              <div className="assistant-thread">
-                {aiMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={message.role === 'assistant' ? 'assistant-row' : 'assistant-row assistant-row-user'}
-                  >
-                    <span className="assistant-row-icon">
-                      {message.role === 'assistant' ? <RobotOutlined /> : <CheckCircleFilled />}
-                    </span>
-                    <div
-                      className={
-                        message.role === 'assistant'
-                          ? 'assistant-bubble'
-                          : 'assistant-bubble assistant-bubble-user'
-                      }
-                    >
-                      {message.content}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <Input.Search className="assistant-search" placeholder="输入指令，如：生成本周工作总结..." enterButton="发送" />
-              <Flex wrap="wrap" gap={8}>
-                <Tag className="assistant-shortcut assistant-shortcut-blue">生成周报</Tag>
-                <Tag className="assistant-shortcut assistant-shortcut-purple">智能拆解</Tag>
-                <Tag className="assistant-shortcut assistant-shortcut-cyan">延期分析</Tag>
-                <Tag className="assistant-shortcut assistant-shortcut-red">风险追踪</Tag>
-              </Flex>
-            </div>
+          <Card
+            className="glass-card"
+            title="智能工作助手"
+            extra={
+              <Button type="link" className="section-link-button" onClick={() => openAiAssistant(true)}>
+                打开助手
+              </Button>
+            }
+          >
+            <p className="dashboard-ai-hint">
+              点击右下角绿色悬浮球或此处「打开助手」，使用对话面板进行周报、拆解、风险与项目进度等能力，并与当前租户任务数据联动。
+            </p>
           </Card>
 
           <Card className="glass-card" title="团队负载速览" extra={<Button type="link" className="section-link-button">详情</Button>}>

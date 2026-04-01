@@ -4,26 +4,36 @@ import { z } from "zod";
 import { idSchema, toDbId } from "../../common/db-values";
 import { toAiRecord } from "../../common/db-mappers";
 import { prisma } from "../../common/prisma";
-import { ok, parseBody } from "../../common/http";
+import { ok, parseBody, AppError } from "../../common/http";
 import type { AuthedRequest } from "../../common/types";
+import { AiService, type ChatParams, type SkillParams } from "./ai.service";
 
 const aiSchema = z.object({
   bizId: idSchema.optional(),
   inputText: z.string().min(1),
 });
 
-const createRecord = async (req: AuthedRequest, bizType: string, inputText: string, bizId?: string) => {
+const skillSchema = z.object({
+  bizId: idSchema,
+  inputText: z.string().min(1),
+});
+
+// 创建AI服务实例
+const aiService = new AiService();
+
+// 创建AI记录
+const createAiRecord = async (
+  req: AuthedRequest,
+  bizType: string,
+  inputText: string,
+  outputText: string,
+  bizId?: string,
+  metadata?: any,
+) => {
   const tenant = await prisma.tenant.findFirst({ where: { tenantId: req.ctx.tenantId } });
-  const outputText = `[${bizType}] mock result for: ${inputText}`;
-  const nextRecordId = (
-    await prisma.$queryRawUnsafe<Array<{ next_id: bigint }>>(
-      `select coalesce(max(id), 0) + 1 as next_id from "public"."pm_ai_record"`,
-    )
-  )[0]?.next_id ?? 1n;
 
   const row = await prisma.aiRecord.create({
     data: {
-      id: nextRecordId,
       tenantId: req.ctx.tenantId,
       bizType,
       bizId: bizId ? toDbId(bizId) : null,
@@ -38,17 +48,91 @@ const createRecord = async (req: AuthedRequest, bizType: string, inputText: stri
   return toAiRecord(row);
 };
 
-const buildAiHandler =
-  (bizType: string) =>
-  async (req: AuthedRequest, res: Response): Promise<void> => {
-    const body = parseBody(aiSchema, req.body);
-    const record = await createRecord(req, bizType, body.inputText, body.bizId);
-    ok(res, record, "AI request accepted", 201);
-  };
+// 通用AI处理函数
+const handleAiRequest = async (
+  req: AuthedRequest,
+  res: Response,
+  bizType: string,
+  handler: (params: ChatParams | SkillParams, ctx: any) => Promise<any>,
+) => {
+  try {
+    // 检查AI功能是否可用
+    if (!aiService.isAvailable()) {
+      throw new AppError("AI功能暂不可用，请检查配置或联系管理员", 503);
+    }
 
-export const aiChat = buildAiHandler("chat");
-export const weeklyReport = buildAiHandler("weekly_report");
-export const taskBreakdown = buildAiHandler("task_breakdown");
-export const delayAnalysis = buildAiHandler("risk_analysis");
-export const projectProgress = buildAiHandler("project_progress");
-export const taskInsight = buildAiHandler("task_insight");
+    const body = parseBody(bizType === "chat" ? aiSchema : skillSchema, req.body);
+
+    // 调用AI服务
+    const aiResult = await handler(body, req.ctx);
+
+    if (!aiResult.success) {
+      throw new AppError(aiResult.error || "AI处理失败", 500);
+    }
+
+    // 创建记录
+    const record = await createAiRecord(
+      req,
+      bizType,
+      body.inputText,
+      aiResult.output,
+      body.bizId,
+      aiResult.metadata,
+    );
+
+    // 返回结果
+    ok(res, {
+      ...aiResult,
+      recordId: record.id,
+    });
+
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    console.error(`AI请求处理失败 (${bizType}):`, error);
+    throw new AppError(`AI处理失败: ${error instanceof Error ? error.message : "未知错误"}`, 500);
+  }
+};
+
+// AI聊天
+export const aiChat = async (req: AuthedRequest, res: Response): Promise<void> => {
+  await handleAiRequest(req, res, "chat", (params, ctx) =>
+    aiService.chat(params as ChatParams, ctx)
+  );
+};
+
+// 周报生成
+export const weeklyReport = async (req: AuthedRequest, res: Response): Promise<void> => {
+  await handleAiRequest(req, res, "weekly_report", (params, ctx) =>
+    aiService.generateWeeklyReport(params as SkillParams, ctx)
+  );
+};
+
+// 任务拆解
+export const taskBreakdown = async (req: AuthedRequest, res: Response): Promise<void> => {
+  await handleAiRequest(req, res, "task_breakdown", (params, ctx) =>
+    aiService.breakdownTask(params as SkillParams, ctx)
+  );
+};
+
+// 风险分析
+export const delayAnalysis = async (req: AuthedRequest, res: Response): Promise<void> => {
+  await handleAiRequest(req, res, "risk_analysis", (params, ctx) =>
+    aiService.analyzeRisk(params as SkillParams, ctx)
+  );
+};
+
+// 项目进度（暂时使用通用聊天）
+export const projectProgress = async (req: AuthedRequest, res: Response): Promise<void> => {
+  await handleAiRequest(req, res, "project_progress", (params, ctx) =>
+    aiService.chat(params as ChatParams, ctx)
+  );
+};
+
+// 任务洞察（暂时使用通用聊天）
+export const taskInsight = async (req: AuthedRequest, res: Response): Promise<void> => {
+  await handleAiRequest(req, res, "task_insight", (params, ctx) =>
+    aiService.chat(params as ChatParams, ctx)
+  );
+};

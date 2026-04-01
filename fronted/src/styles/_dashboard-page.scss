@@ -398,6 +398,13 @@
   white-space: nowrap;
 }
 
+.dashboard-ai-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--pm-text-secondary);
+}
+
 .assistant-panel {
   display: flex;
   flex-direction: column;

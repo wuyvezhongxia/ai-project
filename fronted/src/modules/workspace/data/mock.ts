@@ -126,22 +126,6 @@ export const riskTasks: RiskTask[] = [
   },
 ]
 
-export const aiMessages = [
-  {
-    id: 'm1',
-    role: 'assistant',
-    content: '你好！我是你的智能工作助手，可以帮你创建任务、查询进度、生成周报，随时问我吧。',
-  },
-  { id: 'm2', role: 'user', content: '我本周还有多少任务没完成？' },
-  {
-    id: 'm3',
-    role: 'assistant',
-    content:
-      '本周你共有 14 个任务，已完成 11 个，还剩 3 个未完成，其中 2 个有延期风险，建议优先处理评审文档和首页交付。',
-  },
-  { id: 'm4', role: 'user', content: '帮我把评审文档拆一下子任务。' },
-] as const
-
 export const memberLoads = [
   { name: '张小明', value: 78, color: '#f6c54f' },
   { name: '王芳', value: 62, color: '#ff7c8b' },

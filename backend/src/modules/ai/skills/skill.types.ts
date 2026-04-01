@@ -1,6 +1,14 @@
-import type { BaseTool } from "@langchain/core/tools";
-import type { BaseChain } from "langchain/chains";
-import type { PromptTemplate } from "@langchain/core/prompts";
+type SkillToolLike = {
+  name?: string;
+};
+
+type SkillChainLike = {
+  name?: string;
+};
+
+type SkillPromptLike = {
+  template?: string;
+};
 
 /**
  * Skill分类
@@ -74,9 +82,9 @@ export interface ISkill {
   execute(params: SkillParams, context: SkillContext): Promise<SkillResult>;
 
   // 内部实现（对外透明）
-  tools: BaseTool[];             // 使用的底层工具
-  chains: BaseChain[];           // 执行链
-  prompts: PromptTemplate[];     // 提示模板
+  tools: SkillToolLike[];        // 使用的底层工具
+  chains: SkillChainLike[];      // 执行链
+  prompts: SkillPromptLike[];    // 提示模板
 }
 
 /**
