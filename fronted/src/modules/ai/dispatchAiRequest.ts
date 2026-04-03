@@ -21,19 +21,35 @@ async function streamAiChat(payload: {
   onConfirmationRequired?: (data: any) => void
 }): Promise<AiResult> {
   const token = getStoredToken()
+  const controller = new AbortController()
+  const IDLE_TIMEOUT_MS = 45_000
+  let idleTimer: number | null = null
+  const resetIdleTimer = () => {
+    if (idleTimer != null) window.clearTimeout(idleTimer)
+    idleTimer = window.setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS)
+  }
+
+  resetIdleTimer()
   const resp = await fetch('/api/ai/chat/stream', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    signal: controller.signal,
     body: JSON.stringify({
       inputText: payload.inputText,
       ...(payload.bizId ? { bizId: payload.bizId } : {}),
     }),
+  }).catch((error) => {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('AI 响应超时，请重试')
+    }
+    throw error
   })
 
   if (!resp.ok || !resp.body) {
+    if (idleTimer != null) window.clearTimeout(idleTimer)
     throw new Error(`流式请求失败: ${resp.status}`)
   }
 
@@ -45,6 +61,7 @@ async function streamAiChat(payload: {
 
   while (true) {
     const { done, value } = await reader.read()
+    resetIdleTimer()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
 
@@ -86,6 +103,7 @@ async function streamAiChat(payload: {
       }
 
       if (typed.type === 'confirmation_required') {
+        if (idleTimer != null) window.clearTimeout(idleTimer)
         // 触发确认回调并提前返回
         payload.onConfirmationRequired?.({
           requiresConfirmation: true,
@@ -104,6 +122,8 @@ async function streamAiChat(payload: {
       }
     }
   }
+
+  if (idleTimer != null) window.clearTimeout(idleTimer)
 
   if (!output.trim()) {
     throw new Error('AI 未返回有效内容，请检查模型配置或稍后重试')

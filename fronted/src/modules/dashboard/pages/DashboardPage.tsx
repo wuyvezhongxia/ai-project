@@ -7,11 +7,13 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { Avatar, Button, Card, Checkbox, List, Progress, Space, Tag } from 'antd'
+import { useQuery } from '@tanstack/react-query'
 import { statCards } from '../../workspace/data/mock'
 import { useAiAssistantStore } from '../../ai/ai-assistant.store'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../../workspace/utils/avatar'
+import { workspaceApi } from '../../workspace/services/workspace.api'
 import {
   useDashboardQuery,
   useMustDoTodayQuery,
@@ -46,6 +48,11 @@ function DashboardPage() {
   const aiMessages = useAiAssistantStore((s) => s.messages)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
   const { data: dashboard } = useDashboardQuery()
+  const { data: aiHistoryResp } = useQuery({
+    queryKey: ['ai-history-preview'],
+    queryFn: () => workspaceApi.aiHistory({ limit: 12 }),
+    staleTime: 30_000,
+  })
   const { data: mustDoTasks = [], isLoading: loadingMustDo } = useMustDoTodayQuery()
   const { data: riskTasks = [], isLoading: loadingRisk } = useRiskTasksQuery()
   const { data: memberLoads = [] } = useWorkloadQuery('week')
@@ -61,13 +68,37 @@ function DashboardPage() {
   const weeklyTotal = dashboard?.summary?.total ?? 0
   const weeklyCompleted = Math.max(weeklyTotal - (dashboard?.summary?.risk ?? 0), 0)
   const weeklyCompletionRate = weeklyTotal > 0 ? Math.round((weeklyCompleted / weeklyTotal) * 100) : Number.parseInt(statCards[1].value, 10)
-  const recentAssistantMessages = aiMessages
+  const liveMessages = aiMessages
     .filter((message) => message.id !== 'welcome' && message.content.trim())
     .slice(-4)
     .map((message) => ({
       ...message,
       content: message.content.length > 110 ? `${message.content.slice(0, 110)}...` : message.content,
     }))
+  const persistedMessages =
+    aiHistoryResp?.records
+      ?.flatMap((record) => {
+        const items: Array<{ id: string; role: 'user' | 'assistant'; content: string }> = []
+        if (record.inputText?.trim()) {
+          items.push({ id: `d-u-${record.id}`, role: 'user', content: record.inputText })
+        }
+        if (record.outputText?.trim()) {
+          items.push({ id: `d-a-${record.id}`, role: 'assistant', content: record.outputText })
+        }
+        return items
+      })
+      .slice(-4)
+      .map((message) => ({
+        ...message,
+        content: message.content.length > 110 ? `${message.content.slice(0, 110)}...` : message.content,
+      })) ?? []
+  const recentAssistantMessages = liveMessages.length > 0 ? liveMessages : persistedMessages
+  const previewSkills: Array<{ key: string; label: string; className: string }> = [
+    { key: 'weekly', label: '生成周报', className: 'dashboard-ai-preview-skill--weekly' },
+    { key: 'breakdown', label: '任务拆解', className: 'dashboard-ai-preview-skill--breakdown' },
+    { key: 'risk', label: '延期风险', className: 'dashboard-ai-preview-skill--risk' },
+    { key: 'progress', label: '项目进度', className: 'dashboard-ai-preview-skill--progress' },
+  ]
 
   const resolvedStatCards = [
     { ...statCards[0], value: String(todayTotal), suffix: `已完成 ${todayCompleted} / ${todayTotal} · ${todayCompletionRate}%` },
@@ -245,31 +276,61 @@ function DashboardPage() {
                 </Button>
               }
             >
-              {recentAssistantMessages.length > 0 ? (
-                <div className="dashboard-ai-preview-thread" aria-label="最近对话预览">
-                  {recentAssistantMessages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={message.role === 'user' ? 'dashboard-ai-preview-row dashboard-ai-preview-row-user' : 'dashboard-ai-preview-row'}
-                    >
-                      <span className="dashboard-ai-preview-role">{message.role === 'user' ? '我' : '助手'}</span>
+              <div className="dashboard-ai-preview-shell">
+                {recentAssistantMessages.length > 0 ? (
+                  <div className="dashboard-ai-preview-thread" aria-label="最近对话预览">
+                    {recentAssistantMessages.map((message) => (
                       <div
-                        className={
-                          message.role === 'user'
-                            ? 'dashboard-ai-preview-bubble dashboard-ai-preview-bubble-user'
-                            : 'dashboard-ai-preview-bubble'
-                        }
+                        key={message.id}
+                        className={message.role === 'user' ? 'dashboard-ai-preview-row dashboard-ai-preview-row-user' : 'dashboard-ai-preview-row'}
                       >
-                        {message.content}
+                        <span className="dashboard-ai-preview-role">{message.role === 'user' ? '我' : '助手'}</span>
+                        <div
+                          className={
+                            message.role === 'user'
+                              ? 'dashboard-ai-preview-bubble dashboard-ai-preview-bubble-user'
+                              : 'dashboard-ai-preview-bubble'
+                          }
+                        >
+                          {message.content}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-ai-hint">
+                    你好，我是智能工作助手。你还没有聊天记录，点击「打开助手」即可开始，我可以帮你做周报、任务拆解、延期风险和项目进度分析。
+                  </p>
+                )}
+
+                <div className="dashboard-ai-preview-footer">
+                  <div className="dashboard-ai-preview-skills">
+                    {previewSkills.map((skill) => (
+                      <button
+                        key={skill.key}
+                        type="button"
+                        className={`dashboard-ai-preview-skill ${skill.className}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openAiAssistant(true)
+                        }}
+                      >
+                        {skill.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="dashboard-ai-preview-input"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openAiAssistant(true)
+                    }}
+                  >
+                    基于工作数据提问，Shift + Enter 换行
+                  </button>
                 </div>
-              ) : (
-                <p className="dashboard-ai-hint">
-                  点击右下角绿色悬浮球或此处「打开助手」，使用对话面板进行周报、拆解、风险与项目进度等能力，并与当前租户任务数据联动。
-                </p>
-              )}
+              </div>
             </Card>
           ) : null}
 

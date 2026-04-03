@@ -48,6 +48,50 @@ type ConfirmationDetail = {
   tip?: string
 }
 
+type LocalAiThreadCache = {
+  version: 1
+  updatedAt: number
+  messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }>
+  lastModelLabel?: string | null
+}
+
+const AI_LOCAL_CACHE_PREFIX = 'pm-ai-thread-cache-v1'
+const AI_LOCAL_CACHE_MAX_MESSAGES = 80
+
+const buildThreadCacheKey = (bizId: string, useWorkContext: boolean) =>
+  `${AI_LOCAL_CACHE_PREFIX}:${useWorkContext && bizId ? `project-${bizId}` : 'global'}`
+
+const readThreadCache = (bizId: string, useWorkContext: boolean): LocalAiThreadCache | null => {
+  try {
+    const raw = localStorage.getItem(buildThreadCacheKey(bizId, useWorkContext))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as LocalAiThreadCache
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.messages)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const writeThreadCache = (
+  bizId: string,
+  useWorkContext: boolean,
+  messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }>,
+  lastModelLabel?: string | null,
+) => {
+  try {
+    const payload: LocalAiThreadCache = {
+      version: 1,
+      updatedAt: Date.now(),
+      messages: messages.slice(-AI_LOCAL_CACHE_MAX_MESSAGES),
+      lastModelLabel: lastModelLabel ?? null,
+    }
+    localStorage.setItem(buildThreadCacheKey(bizId, useWorkContext), JSON.stringify(payload))
+  } catch {
+    // localStorage 失败时静默降级，不影响主流程
+  }
+}
+
 const renderMarkdownAsPlainText = (content: string) =>
   content
     .replace(/^#{1,6}\s+/gm, '')
@@ -63,6 +107,8 @@ const renderMarkdownAsPlainText = (content: string) =>
 function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false }: AiAssistantFloatingProps) {
   const threadRef = useRef<HTMLDivElement>(null)
   const pendingRef = useRef(false)
+  const pendingStartedAtRef = useRef(0)
+  const sentSinceOpenRef = useRef(false)
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -107,8 +153,19 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   }, [open, projectsLoaded, projectOptions, defaultProjectId, setDefaultProjectId])
 
   useEffect(() => {
+    if (open) {
+      sentSinceOpenRef.current = false
+    }
+  }, [open])
+
+  useEffect(() => {
     if (!open) return
     let active = true
+    const cache = readThreadCache(defaultProjectId, workContext)
+    if (cache?.messages?.length) {
+      setMessages(cache.messages)
+      if (cache.lastModelLabel) setLastModelLabel(cache.lastModelLabel)
+    }
 
     const loadHistory = async () => {
       try {
@@ -130,12 +187,18 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         })
 
         if (loaded.length > 0) {
-          setMessages(loaded)
+          // 若用户已在本次打开后发送消息，则不覆盖当前线程，避免“看起来没发出去”
+          if (!sentSinceOpenRef.current) {
+            setMessages(loaded)
+          }
+          writeThreadCache(defaultProjectId, workContext, loaded, lastModelLabel)
         } else {
-          resetChat()
+          if (!cache?.messages?.length && !sentSinceOpenRef.current) {
+            resetChat()
+          }
         }
       } catch {
-        // 历史加载失败时保持当前会话，避免打断输入
+        // 历史加载失败时保留本地缓存会话，保证可用性
       }
     }
 
@@ -143,7 +206,13 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
     return () => {
       active = false
     }
-  }, [open, workContext, defaultProjectId, setMessages, resetChat])
+  }, [open, workContext, defaultProjectId, setMessages, resetChat, setLastModelLabel])
+
+  useEffect(() => {
+    if (!open) return
+    if (!messages.length) return
+    writeThreadCache(defaultProjectId, workContext, messages, lastModelLabel)
+  }, [open, defaultProjectId, workContext, messages, lastModelLabel])
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -160,7 +229,19 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   const runSend = useCallback(
     async (text: string, intentOverride?: AiIntent) => {
       const trimmed = text.trim()
-      if (!trimmed || pendingRef.current) return
+      if (!trimmed) return
+      if (pendingRef.current) {
+        const elapsed = Date.now() - (pendingStartedAtRef.current || 0)
+        if (elapsed < 5000) {
+          message.info('上一条消息仍在生成，请稍候...')
+          return
+        }
+        pendingRef.current = false
+        pendingStartedAtRef.current = 0
+        setPending(false)
+      }
+      let waitingForConfirmation = false
+      sentSinceOpenRef.current = true
 
       const assistantId = `a-${Date.now()}`
       const userMsg = { id: `u-${Date.now()}`, role: 'user' as const, content: trimmed }
@@ -168,6 +249,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
       appendMessages({ id: assistantId, role: 'assistant', content: '' })
       setInput('')
       pendingRef.current = true
+      pendingStartedAtRef.current = Date.now()
       setPending(true)
 
       try {
@@ -192,6 +274,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
 
         if (result.requiresConfirmation) {
           // 已经触发onConfirmationRequired回调，等待用户确认
+          waitingForConfirmation = true
           return
         }
 
@@ -202,14 +285,33 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         message.error(msg)
         updateMessageContent(assistantId, () => `暂时无法完成请求：${msg}`)
       } finally {
-        if (!confirmationOpen) {
+        if (!waitingForConfirmation) {
           pendingRef.current = false
+          pendingStartedAtRef.current = 0
           setPending(false)
         }
       }
     },
-    [appendMessages, deepThink, defaultProjectId, detailOpen, selectedTaskId, setLastModelLabel, updateMessageContent, workContext, confirmationOpen],
+    [appendMessages, deepThink, defaultProjectId, detailOpen, selectedTaskId, setLastModelLabel, updateMessageContent, workContext],
   )
+
+  useEffect(() => {
+    if (open) return
+    pendingRef.current = false
+    pendingStartedAtRef.current = 0
+    setPending(false)
+  }, [open])
+
+  useEffect(() => {
+    if (!pending) return
+    const timer = window.setTimeout(() => {
+      pendingRef.current = false
+      pendingStartedAtRef.current = 0
+      setPending(false)
+      message.warning('AI 响应较慢，已解除等待状态，你可以继续发送新消息。')
+    }, 20_000)
+    return () => window.clearTimeout(timer)
+  }, [pending])
 
   // 处理确认操作
   const handleConfirm = async () => {
@@ -452,7 +554,6 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
                 key={q.key}
                 type="button"
                 className="pm-ai-chip"
-                disabled={pending}
                 onClick={() => {
                   if (q.intent === 'weekly' || q.intent === 'progress') {
                     if (!defaultProjectId) {
@@ -477,7 +578,6 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
                 onKeyDown={onKeyDown}
                 placeholder="基于工作数据提问，Shift + Enter 换行"
                 autoSize={{ minRows: 3, maxRows: 8 }}
-                disabled={pending}
               />
               <div className="pm-ai-composer-bar">
                 <div className="pm-ai-toggles">
@@ -502,7 +602,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
                   <button
                     type="button"
                     className="pm-ai-send"
-                    disabled={pending || !input.trim()}
+                    disabled={!input.trim()}
                     aria-label="发送"
                     onClick={() => onSend()}
                   >
@@ -517,7 +617,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
       ) : null}
 
       <Modal title="对话历史" open={historyOpen} onCancel={() => setHistoryOpen(false)} footer={null} destroyOnClose>
-        <p className="pm-ai-muted">历史会话将与服务端同步的能力正在接入；当前会话仅在本次打开助手期间保留在浏览器内存中。</p>
+        <p className="pm-ai-muted">历史记录采用二级存储：服务端数据库为主存，浏览器本地缓存用于快速恢复与网络异常兜底。</p>
       </Modal>
 
       {/* 确认对话框 */}
