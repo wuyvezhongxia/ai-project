@@ -141,7 +141,7 @@ function TaskDetailDrawer() {
   const detailOpen = useWorkspaceStore((state) => state.detailOpen)
   const closeTaskDetail = useWorkspaceStore((state) => state.closeTaskDetail)
   const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
-  const { data: selectedTask, isLoading } = useTaskDetailQuery(selectedTaskId)
+  const { data: selectedTask, isLoading, isError, error } = useTaskDetailQuery(selectedTaskId)
   const { data: projectOptions = [] } = useProjectOptionsQuery()
   const { data: userOptions = [] } = useUserOptionsQuery()
   const updateTaskMutation = useUpdateTaskMutation()
@@ -210,6 +210,19 @@ function TaskDetailDrawer() {
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
   }, [editingCollaborators])
+
+  useEffect(() => {
+    if (!detailOpen || isLoading || !selectedTaskId || !isError) return
+
+    if (error instanceof ApiClientError && error.code === 404) {
+      closeTaskDetail()
+      message.info('任务已删除，已自动关闭详情面板')
+      return
+    }
+
+    closeTaskDetail()
+    message.error('任务详情加载失败，已关闭详情面板')
+  }, [closeTaskDetail, detailOpen, error, isError, isLoading, selectedTaskId])
 
   if (!selectedTask) {
     return (

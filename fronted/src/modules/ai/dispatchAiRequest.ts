@@ -194,6 +194,27 @@ export async function confirmAiAction(action: string, params: any): Promise<AiRe
     throw new Error(`确认操作失败: ${resp.status} ${error}`)
   }
 
-  const result = await resp.json()
-  return result
+  const payload = (await resp.json().catch(() => null)) as
+    | {
+        code?: number
+        message?: string
+        data?: {
+          output?: string
+          metadata?: { model?: string }
+          requiresConfirmation?: boolean
+          confirmationData?: any
+        }
+      }
+    | null
+
+  if (!payload || payload.code !== 0 || !payload.data) {
+    throw new Error(payload?.message || '确认响应格式异常')
+  }
+
+  return {
+    output: payload.data.output || '操作已执行',
+    model: payload.data.metadata?.model,
+    requiresConfirmation: payload.data.requiresConfirmation,
+    confirmationData: payload.data.confirmationData,
+  }
 }

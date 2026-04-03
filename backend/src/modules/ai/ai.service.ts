@@ -178,6 +178,76 @@ const fallbackInsightFromText = (text: string): z.infer<typeof taskInsightSchema
   };
 };
 
+const cleanQuotedText = (value: string) =>
+  value
+    .trim()
+    .replace(/^[“”"'`《》\s]+/, "")
+    .replace(/[“”"'`《》\s]+$/, "")
+    .replace(/[。！!？?]+$/g, "")
+    .trim();
+
+const normalizeLooseText = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[\s\-_/\\.,，。:：;；"'`“”‘’【】\[\]()（）<>《》]/g, "")
+    .trim();
+
+const levenshteinDistance = (a: string, b: string) => {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const dp = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) dp[i]![0] = i;
+  for (let j = 0; j <= b.length; j += 1) dp[0]![j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i]![j] = Math.min(dp[i - 1]![j]! + 1, dp[i]![j - 1]! + 1, dp[i - 1]![j - 1]! + cost);
+    }
+  }
+  return dp[a.length]![b.length]!;
+};
+
+type DeleteTaskTarget = {
+  raw: string;
+  coreName: string;
+  projectHint?: string;
+  statusHint?: string;
+};
+
+const extractDeleteTaskTarget = (text: string): DeleteTaskTarget | null => {
+  const matched = text.match(/(?:请|帮我|麻烦|可以)?\s*(?:删除|移除)\s*(.+)/);
+  if (!matched?.[1]) return null;
+
+  let target = matched[1].trim();
+  target = target.replace(/^(?:一下|这个|那个)\s*/, "").trim();
+  target = target.replace(/(?:吧|一下|好吗|可以吗|行吗)\s*$/g, "").trim();
+  const raw = cleanQuotedText(target);
+  if (!raw) return null;
+
+  const parenthesized = raw.match(/^(.*?)[(（]\s*([^()（）]+)\s*[)）]\s*$/);
+  let coreName = cleanQuotedText(parenthesized?.[1] ?? raw);
+  const hintText = parenthesized?.[2] ?? "";
+  const hintTokens = hintText
+    .split(/[,，、/]/)
+    .map((item) => cleanQuotedText(item))
+    .filter(Boolean);
+  const statusToken = hintTokens.find((token) => /待开始|进行中|已完成|完成|延期/.test(token));
+  const projectToken = hintTokens.find((token) => token !== statusToken);
+
+  coreName = cleanQuotedText(coreName.replace(/^任务/, "").replace(/任务$/, ""));
+  if (!coreName) coreName = raw;
+
+  return {
+    raw,
+    coreName,
+    projectHint: projectToken,
+    statusHint: statusToken,
+  };
+};
+
 export class AiService {
   private async buildChatContext(ctx: AuthContext, bizId?: string) {
     const today = new Date();
@@ -465,6 +535,21 @@ export class AiService {
     try {
       const startedAt = Date.now();
       const input = chatSchema.parse(params);
+      const streamQuestion = input.inputText.trim();
+      const streamLowerText = streamQuestion.toLowerCase();
+
+      // 对「事务型命令」优先走确定性规则链路（chat 内含消歧、确认等逻辑）
+      const isOperationIntent =
+        /(?:创建|新建|建立|添加).{0,8}任务/.test(streamLowerText) ||
+        /(?:删除|移除).{0,6}任务\s*(\d+)/.test(streamLowerText) ||
+        /^(?:请|帮我|麻烦|可以)?\s*(?:删除|移除)\s*\S+/.test(streamLowerText) ||
+        (/(?:删除|移除)/.test(streamLowerText) && /任务/.test(streamLowerText)) ||
+        /(?:恢复|还原).{0,6}任务\s*(\d+)/.test(streamLowerText) ||
+        /(?:把|将)?任务\s*(\d+).{0,8}(?:改为|设为|标记为)\s*(待开始|进行中|已完成|完成|延期)/.test(streamLowerText) ||
+        /(?:查看|查询|详情).{0,4}任务\s*(\d+)/.test(streamLowerText);
+      if (isOperationIntent) {
+        return this.chat(params, ctx);
+      }
 
       if (!hasRealLlm() || !env.DEEPSEEK_API_KEY) {
         // 未配置真实模型时，回退到普通 chat（保持可用性）
@@ -578,6 +663,26 @@ export class AiService {
       const input = chatSchema.parse(params);
       const question = input.inputText.trim();
       const q = question.toLowerCase();
+      const hasExplicitDeleteVerb = /(?:删除|移除)/.test(question);
+
+      // 安全护栏：用户只补充了目标名称/括号信息，但未明确说“删除/移除”时，不默认执行删除语义
+      if (!hasExplicitDeleteVerb) {
+        const likelyTargetOnly =
+          /^[^\n]{1,80}$/.test(question) &&
+          (/[（(].*[)）]/.test(question) || /^[\u4e00-\u9fa5a-zA-Z0-9_-]{2,40}$/.test(question));
+        if (likelyTargetOnly) {
+          return {
+            success: true,
+            output:
+              `我理解你是在补充目标信息：${question}。\n` +
+              `为避免误删，我不会默认执行删除。请明确动作后再继续，例如：\n` +
+              `- 删除 ${question}\n` +
+              `- 查看 ${question}\n` +
+              `- 标记 ${question} 为已完成`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+      }
 
       // 辅助函数：检查是否是预定义的操作命令
       const isPredefinedAction = (text: string): boolean => {
@@ -588,6 +693,12 @@ export class AiService {
         }
         // 删除任务
         if (/(?:删除|移除).{0,6}任务\s*(\d+)/.test(lowerText)) {
+          return true;
+        }
+        if (/^(?:请|帮我|麻烦|可以)?\s*(?:删除|移除)\s*\S+/.test(lowerText)) {
+          return true;
+        }
+        if (/(?:删除|移除)/.test(lowerText) && /任务/.test(lowerText)) {
           return true;
         }
         // 恢复任务
@@ -673,23 +784,287 @@ export class AiService {
           }
           const existing = await prisma.task.findFirst({
             where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
-            select: { id: true, taskName: true },
+            select: { id: true, taskName: true, projectId: true },
           });
           if (!existing) {
-            return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+            const latestRows = await prisma.task.findMany({
+              where: { tenantId: ctx.tenantId, delFlag: "0" },
+              select: { id: true, taskName: true, status: true, projectId: true },
+              orderBy: { id: "desc" },
+              take: 8,
+            });
+            const visibleRows: Array<{ id: string; taskName: string; status: string | null; projectId: string | null }> = [];
+            for (const row of latestRows) {
+              if (await canManageTask(ctx, String(row.id))) {
+                visibleRows.push({
+                  id: String(row.id),
+                  taskName: row.taskName ?? "",
+                  status: row.status,
+                  projectId: row.projectId ? String(row.projectId) : null,
+                });
+              }
+            }
+
+            const projectIds = Array.from(new Set(visibleRows.map((row) => row.projectId).filter((id): id is string => Boolean(id))));
+            const projectRows =
+              projectIds.length > 0
+                ? await prisma.project.findMany({
+                    where: { tenantId: ctx.tenantId, id: { in: projectIds.map((id) => toDbId(id)) }, delFlag: "0" },
+                    select: { id: true, projectName: true },
+                  })
+                : [];
+            const projectNameMap = new Map(projectRows.map((row) => [String(row.id), row.projectName ?? ""]));
+            const latestText = visibleRows
+              .slice(0, 6)
+              .map((row) => `- ${row.taskName}（${row.projectId ? projectNameMap.get(row.projectId) || "未归属项目" : "未归属项目"}，${toTaskStatus(row.status)}）`)
+              .join("\n");
+
+            return {
+              success: true,
+              output:
+                `你说得对，刚才候选列表已经过期了：任务 ${taskId} 现在不存在（可能已被删除）。\n` +
+                `我已刷新当前可删除任务（任务模块）：\n${latestText}\n` +
+                `请直接回复「删除<完整任务名>」，例如：删除${visibleRows[0]?.taskName || "某任务"}`,
+              metadata: buildMeta(startedAt),
+            };
           }
+          const project = existing.projectId
+            ? await prisma.project.findFirst({
+                where: { tenantId: ctx.tenantId, id: existing.projectId, delFlag: "0" },
+                select: { projectName: true },
+              })
+            : null;
           // 返回确认请求，而不是直接删除
           return {
             success: true,
-            output: `检测到删除任务请求：任务 ${taskId}（${existing.taskName}）。请确认是否要删除此任务？`,
+            output: `检测到删除任务请求：任务「${existing.taskName}」${project?.projectName ? `（项目：${project.projectName}）` : ""}。请确认是否删除。`,
             requiresConfirmation: true,
             confirmationData: {
               action: "deleteTask",
-              params: { taskId, taskName: existing.taskName },
-              message: `确定要删除任务 ${taskId}（${existing.taskName}）吗？此操作无法撤销。`,
+              params: { taskId, taskName: existing.taskName, projectName: project?.projectName ?? undefined, module: "task" },
+              message: `确定要删除任务「${existing.taskName}」吗？此操作无法撤销。`,
             },
             metadata: buildMeta(startedAt),
           };
+        }
+
+        const deleteTarget = extractDeleteTaskTarget(question);
+        if (deleteTarget) {
+          const deleteTargetRaw = deleteTarget.raw;
+          const numericInTarget = deleteTarget.coreName.match(/^(?:任务\s*)?(\d+)$/);
+          if (!numericInTarget) {
+            const variants = Array.from(
+              new Set(
+                [
+                  deleteTarget.coreName,
+                  deleteTargetRaw,
+                  cleanQuotedText(deleteTarget.coreName.replace(/^任务/, "")),
+                  cleanQuotedText(deleteTarget.coreName.replace(/任务$/, "")),
+                ].filter((item) => item && item.length >= 2),
+              ),
+            );
+
+            if (variants.length > 0) {
+              const rows = await prisma.task.findMany({
+                where: {
+                  tenantId: ctx.tenantId,
+                  delFlag: "0",
+                  OR: variants.map((name) => ({
+                    taskName: { contains: name, mode: "insensitive" },
+                  })),
+                },
+                select: {
+                  id: true,
+                  taskName: true,
+                  status: true,
+                  projectId: true,
+                },
+                orderBy: { id: "desc" },
+                take: 8,
+              });
+              const projectIdSet = Array.from(
+                new Set(rows.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)),
+              );
+              const projectRows =
+                projectIdSet.length > 0
+                  ? await prisma.project.findMany({
+                      where: {
+                        tenantId: ctx.tenantId,
+                        id: { in: projectIdSet.map((id) => toDbId(id)) },
+                        delFlag: "0",
+                      },
+                      select: { id: true, projectName: true },
+                    })
+                  : [];
+              const projectNameMap = new Map(projectRows.map((row) => [String(row.id), row.projectName ?? ""]));
+
+              const candidates: Array<{ id: string; taskName: string; status: string | null; projectName?: string }> = [];
+              for (const row of rows) {
+                const taskId = String(row.id);
+                if (await canManageTask(ctx, taskId)) {
+                  candidates.push({
+                    id: taskId,
+                    taskName: row.taskName ?? "",
+                    status: row.status,
+                    projectName: row.projectId ? projectNameMap.get(String(row.projectId)) : undefined,
+                  });
+                }
+              }
+
+              if (candidates.length === 0) {
+                const fallbackRows = await prisma.task.findMany({
+                  where: { tenantId: ctx.tenantId, delFlag: "0" },
+                  select: { id: true, taskName: true, status: true, projectId: true },
+                  orderBy: { id: "desc" },
+                  take: 30,
+                });
+                const fallbackProjectIds = Array.from(
+                  new Set(fallbackRows.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)),
+                );
+                const fallbackProjectRows =
+                  fallbackProjectIds.length > 0
+                    ? await prisma.project.findMany({
+                        where: {
+                          tenantId: ctx.tenantId,
+                          id: { in: fallbackProjectIds.map((id) => toDbId(id)) },
+                          delFlag: "0",
+                        },
+                        select: { id: true, projectName: true },
+                      })
+                    : [];
+                const fallbackProjectMap = new Map(
+                  fallbackProjectRows.map((row) => [String(row.id), row.projectName ?? ""]),
+                );
+
+                const normalizedTarget = normalizeLooseText(deleteTarget.coreName || deleteTargetRaw);
+                const fuzzyCandidates: Array<{
+                  id: string;
+                  taskName: string;
+                  status: string | null;
+                  projectName?: string;
+                  score: number;
+                }> = [];
+
+                for (const row of fallbackRows) {
+                  const taskId = String(row.id);
+                  if (!(await canManageTask(ctx, taskId))) continue;
+                  const taskName = row.taskName ?? "";
+                  const normalizedTaskName = normalizeLooseText(taskName);
+                  if (!normalizedTaskName || !normalizedTarget) continue;
+
+                  let score = 0;
+                  if (normalizedTaskName === normalizedTarget) score += 10;
+                  if (normalizedTaskName.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedTaskName)) score += 6;
+                  if (normalizedTaskName.includes(normalizedTarget) || normalizedTarget.includes(normalizedTaskName)) score += 4;
+                  const distance = levenshteinDistance(normalizedTaskName, normalizedTarget);
+                  if (distance <= 2) score += 4 - distance;
+
+                  if (deleteTarget.projectHint) {
+                    const projectName = row.projectId ? fallbackProjectMap.get(String(row.projectId)) || "" : "";
+                    if (projectName.toLowerCase().includes(deleteTarget.projectHint.toLowerCase())) score += 2;
+                  }
+
+                  if (score > 0) {
+                    fuzzyCandidates.push({
+                      id: taskId,
+                      taskName,
+                      status: row.status,
+                      projectName: row.projectId ? fallbackProjectMap.get(String(row.projectId)) : undefined,
+                      score,
+                    });
+                  }
+                }
+
+                const topFuzzy = fuzzyCandidates.sort((a, b) => b.score - a.score).slice(0, 5);
+                if (topFuzzy.length > 0) {
+                  const optionText = topFuzzy
+                    .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}）`)
+                    .join("\n");
+                  return {
+                    success: true,
+                    output:
+                      `我没有精确匹配到「${deleteTargetRaw}」，但找到了可能相关的任务：\n` +
+                      `${optionText}\n` +
+                      `请回复完整目标，例如：删除 ${topFuzzy[0]!.taskName}（${topFuzzy[0]!.projectName || "未归属项目"}，${toTaskStatus(topFuzzy[0]!.status)}）`,
+                    metadata: buildMeta(startedAt),
+                  };
+                }
+
+                return {
+                  success: true,
+                  output:
+                    `我没有找到可删除的任务「${deleteTargetRaw}」。\n` +
+                    `请补充更完整的信息（任务名/所属项目/状态），例如：删除 test1（演示项目，进行中）。`,
+                  metadata: buildMeta(startedAt),
+                };
+              }
+
+              const resolved = candidates
+                .map((item) => {
+                  const taskStatus = toTaskStatus(item.status);
+                  let score = 0;
+                  if (item.taskName.toLowerCase() === deleteTarget.coreName.toLowerCase()) score += 8;
+                  if (item.taskName.toLowerCase().includes(deleteTarget.coreName.toLowerCase())) score += 4;
+                  if (variants.some((name) => item.taskName.toLowerCase() === name.toLowerCase())) score += 2;
+                  if (deleteTarget.projectHint && item.projectName?.toLowerCase().includes(deleteTarget.projectHint.toLowerCase())) score += 3;
+                  if (deleteTarget.statusHint && taskStatus.includes(deleteTarget.statusHint.replace("完成", "已完成"))) score += 2;
+                  return { ...item, score };
+                })
+                .sort((a, b) => b.score - a.score);
+
+              const topScore = resolved[0]?.score ?? 0;
+              const topResolved = resolved.filter((item) => item.score === topScore);
+
+              const normalizedCoreName = cleanQuotedText(deleteTarget.coreName).toLowerCase();
+              const exactResolved = resolved.filter(
+                (item) => cleanQuotedText(item.taskName).toLowerCase() === normalizedCoreName,
+              );
+
+              // 仅在“明确精确命中单个任务”时，才进入最终删除确认弹窗。
+              // 对于“删除ai”->“ai2”这类模糊匹配，先让用户确认目标，避免误删。
+              if (exactResolved.length === 1) {
+                const target = exactResolved[0]!;
+                return {
+                  success: true,
+                  output: `检测到删除任务请求：任务「${target.taskName}」${target.projectName ? `（项目：${target.projectName}）` : ""}。请确认是否删除。`,
+                  requiresConfirmation: true,
+                  confirmationData: {
+                    action: "deleteTask",
+                    params: { taskId: target.id, taskName: target.taskName, projectName: target.projectName, module: "task" },
+                    message: `确定要删除任务「${target.taskName}」吗？此操作无法撤销。`,
+                  },
+                  metadata: buildMeta(startedAt),
+                };
+              }
+
+              if (topResolved.length === 1 && topScore > 0) {
+                const target = topResolved[0]!;
+                return {
+                  success: true,
+                  output:
+                    `我猜你要删除的是任务「${target.taskName}」${target.projectName ? `（项目：${target.projectName}）` : ""}。\n` +
+                    `请先确认目标：\n` +
+                    `- 若是该任务，请回复：删除 ${target.taskName}\n` +
+                    `- 若不是，请回复更完整名称（可带项目/状态），例如：删除 ${target.taskName}（${target.projectName || "未归属项目"}，${toTaskStatus(target.status)}）`,
+                  metadata: buildMeta(startedAt),
+                };
+              }
+
+              const optionText = resolved
+                .slice(0, 5)
+                .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}）`)
+                .join("\n");
+
+              return {
+                success: true,
+                output:
+                  `我找到了多个可能匹配「${deleteTargetRaw}」的任务，请先确认具体目标：\n` +
+                  `${optionText}\n` +
+                  `请回复更完整名称，例如「删除 ${resolved[0]!.taskName}（${resolved[0]!.projectName || "未归属项目"}，${toTaskStatus(resolved[0]!.status)}）」。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+          }
         }
 
         // 4) 恢复任务
@@ -1077,7 +1452,7 @@ export class AiService {
 
           return {
             success: true,
-            output: `任务 ${taskId}（${existing.taskName}）已删除。`,
+            output: `任务「${existing.taskName}」已删除，已从任务列表移除（这不是“改为已完成”）。`,
             metadata: buildMeta(startedAt),
           };
         }

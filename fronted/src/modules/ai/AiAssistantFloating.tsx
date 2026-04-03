@@ -14,6 +14,7 @@ import {
   RobotOutlined,
 } from '@ant-design/icons'
 import { Button, Flex, Input, message, Modal, Select, Tooltip } from 'antd'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { useAiAssistantStore } from './ai-assistant.store'
 import { dispatchAiRequest, confirmAiAction } from './dispatchAiRequest'
@@ -39,6 +40,14 @@ type AiAssistantFloatingProps = {
 
 type MessageFeedback = 'like' | 'dislike'
 
+type ConfirmationDetail = {
+  scopeLabel: string
+  objectLabel: string
+  primaryName: string
+  secondaryName?: string
+  tip?: string
+}
+
 const renderMarkdownAsPlainText = (content: string) =>
   content
     .replace(/^#{1,6}\s+/gm, '')
@@ -63,6 +72,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   const [confirmationData, setConfirmationData] = useState<any>(null)
   const [confirmationAssistantId, setConfirmationAssistantId] = useState<string>('')
   const prevOpen = useRef(false)
+  const queryClient = useQueryClient()
 
   const open = useAiAssistantStore((s) => s.open)
   const toggleOpen = useAiAssistantStore((s) => s.toggleOpen)
@@ -85,6 +95,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
 
   const selectedTaskId = useWorkspaceStore((s) => s.selectedTaskId)
   const detailOpen = useWorkspaceStore((s) => s.detailOpen)
+  const closeTaskDetail = useWorkspaceStore((s) => s.closeTaskDetail)
 
   const { data: projectOptions = [], isSuccess: projectsLoaded } = useProjectOptionsQuery(!fabOnly)
 
@@ -205,13 +216,28 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
     if (!confirmationData || !confirmationAssistantId) return
 
     try {
+      const action = confirmationData.confirmationData?.action || confirmationData.action
+      const actionParams = confirmationData.confirmationData?.params || confirmationData.params
       const result = await confirmAiAction(
-        confirmationData.confirmationData?.action || confirmationData.action,
-        confirmationData.confirmationData?.params || confirmationData.params
+        action,
+        actionParams
       )
 
       if (result.model) setLastModelLabel(result.model)
-      updateMessageContent(confirmationAssistantId, () => result.output)
+      updateMessageContent(confirmationAssistantId, () => result.output || '操作已执行')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['todo-list'] }),
+        queryClient.invalidateQueries({ queryKey: ['todo-kanban'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['must-do-today'] }),
+        queryClient.invalidateQueries({ queryKey: ['risk-tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        queryClient.invalidateQueries({ queryKey: ['project-tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['project-stats'] }),
+      ])
+      if (action === 'deleteTask' && detailOpen && selectedTaskId && String(actionParams?.taskId || '') === selectedTaskId) {
+        closeTaskDetail()
+      }
       message.success('操作已确认并执行')
     } catch (err) {
       const msg = err instanceof Error ? err.message : '确认操作失败'
@@ -278,6 +304,25 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
     .filter(Boolean)
     .join(' ')
   const lastMessageId = messages[messages.length - 1]?.id
+  const confirmationParams = confirmationData?.confirmationData?.params || confirmationData?.params || {}
+  const confirmationDetail: ConfirmationDetail = (() => {
+    const action = confirmationData?.confirmationData?.action || confirmationData?.action || ''
+    if (action === 'deleteTask') {
+      return {
+        scopeLabel: '任务模块',
+        objectLabel: '任务',
+        primaryName: confirmationParams.taskName || '未命名任务',
+        secondaryName: confirmationParams.projectName ? `所属项目：${confirmationParams.projectName}` : undefined,
+        tip: '删除后将无法恢复。',
+      }
+    }
+    return {
+      scopeLabel: '工作模块',
+      objectLabel: '对象',
+      primaryName: confirmationParams.taskName || confirmationParams.projectName || '待确认对象',
+      tip: '请确认后再执行。',
+    }
+  })()
 
   return (
     <>
@@ -486,16 +531,14 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         destroyOnClose
       >
         {confirmationData ? (
-          <div>
-            <p>{confirmationData.confirmationData?.message || confirmationData.message || '确定要执行此操作吗？'}</p>
-            {confirmationData.confirmationData?.params && (
-              <div style={{ marginTop: '16px', padding: '12px', background: '#f5f5f5', borderRadius: '4px' }}>
-                <p style={{ marginBottom: '8px', fontWeight: '500' }}>操作详情：</p>
-                <pre style={{ fontSize: '12px', overflow: 'auto', maxHeight: '200px', margin: 0 }}>
-                  {JSON.stringify(confirmationData.confirmationData.params, null, 2)}
-                </pre>
-              </div>
-            )}
+          <div className="pm-ai-confirm">
+            <p className="pm-ai-confirm-main">
+              将在「{confirmationDetail.scopeLabel}」执行删除，目标{confirmationDetail.objectLabel}：{confirmationDetail.primaryName}
+            </p>
+            {confirmationDetail.secondaryName ? (
+              <p className="pm-ai-confirm-sub">{confirmationDetail.secondaryName}</p>
+            ) : null}
+            <p className="pm-ai-confirm-tip">{confirmationDetail.tip || '确认后将立即执行。'}</p>
           </div>
         ) : (
           <p>加载确认信息...</p>

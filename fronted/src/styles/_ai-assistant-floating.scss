@@ -410,6 +410,34 @@ $pm-ai-blue-pill: #e8f0ff;
   line-height: 1.6;
 }
 
+.pm-ai-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-ai-confirm-main {
+  margin: 0;
+  color: var(--pm-text-heading);
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 600;
+}
+
+.pm-ai-confirm-sub {
+  margin: 0;
+  color: var(--pm-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pm-ai-confirm-tip {
+  margin: 0;
+  color: #ff7b88;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 @media (max-width: 480px) {
   .pm-ai-panel {
     right: 12px;

@@ -129,6 +129,28 @@ export const aiChatStream = async (req: AuthedRequest, res: Response): Promise<v
     return;
   }
 
+  if (aiResult.requiresConfirmation) {
+    const record = await createAiRecord(
+      req,
+      "chat",
+      body.inputText,
+      aiResult.output,
+      body.bizId,
+      aiResult.metadata,
+    );
+    res.write(
+      `data: ${JSON.stringify({
+        type: "confirmation_required",
+        recordId: record.id,
+        model: aiResult.metadata?.model ?? null,
+        message: aiResult.confirmationData?.message ?? aiResult.output,
+        confirmationData: aiResult.confirmationData,
+      })}\n\n`,
+    );
+    res.end();
+    return;
+  }
+
   const record = await createAiRecord(
     req,
     "chat",
