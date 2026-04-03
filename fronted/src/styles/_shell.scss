@@ -24,6 +24,24 @@
   align-self: start;
   height: calc(100vh - 116px);
   min-width: 0;
+  z-index: 1305;
+  isolation: isolate;
+}
+
+/* 任务详情抽屉打开时：助手改为独立悬浮层，避免与抽屉内容挤在同一视觉平面 */
+body:has(.task-detail-drawer) {
+  .app-content--with-ai {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-ai-dock {
+    position: fixed;
+    top: 96px;
+    right: 20px;
+    width: min(500px, calc(100vw - 40px));
+    height: calc(100vh - 124px);
+    z-index: 1320;
+  }
 }
 
 @media (max-width: 1180px) {
@@ -33,5 +51,14 @@
 
   .app-ai-dock {
     height: min(72vh, 640px);
+  }
+}
+
+@media (max-width: 860px) {
+  body:has(.task-detail-drawer) .app-ai-dock {
+    top: 78px;
+    right: 12px;
+    width: calc(100vw - 24px);
+    height: calc(100vh - 96px);
   }
 }

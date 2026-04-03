@@ -326,7 +326,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
 
   return (
     <>
-      {!hideFab ? (
+      {!hideFab && !open ? (
         <button
           type="button"
           className={`pm-ai-fab${open ? ' pm-ai-fab--active' : ''}`}

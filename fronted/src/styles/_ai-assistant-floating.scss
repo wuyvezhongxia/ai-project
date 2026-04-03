@@ -2,12 +2,14 @@
 $pm-ai-green: #1eb87a;
 $pm-ai-green-soft: #e8f7f1;
 $pm-ai-blue-pill: #e8f0ff;
+$pm-ai-overlay-z: 1300;
+$pm-ai-overlay-z-dock: 1310;
 
 .pm-ai-fab {
   position: fixed;
   right: 22px;
   bottom: 22px;
-  z-index: 1050;
+  z-index: $pm-ai-overlay-z;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -45,7 +47,7 @@ $pm-ai-blue-pill: #e8f0ff;
   position: fixed;
   right: 22px;
   bottom: 92px;
-  z-index: 1040;
+  z-index: $pm-ai-overlay-z;
   display: flex;
   flex-direction: column;
   width: 400px;
@@ -67,11 +69,21 @@ $pm-ai-blue-pill: #e8f0ff;
   position: relative;
   right: auto;
   bottom: auto;
-  z-index: 1;
+  z-index: $pm-ai-overlay-z-dock;
   width: 100%;
   max-width: none;
   height: 100%;
   border-radius: 16px;
+}
+
+body:has(.task-detail-drawer) .pm-ai-panel--dock {
+  border-radius: 14px;
+  border-color: rgba(150, 165, 190, 0.35);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow:
+    0 22px 56px rgba(20, 27, 45, 0.24),
+    0 6px 20px rgba(20, 27, 45, 0.12);
+  backdrop-filter: blur(8px);
 }
 
 .pm-ai-header {
