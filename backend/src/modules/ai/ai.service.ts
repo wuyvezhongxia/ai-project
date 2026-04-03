@@ -178,6 +178,45 @@ const isLikelyStructuredFieldsText = (text: string): boolean =>
   /[,，]/.test(text) &&
   (/@\S+/.test(text) || /\d{6,8}|20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}/.test(text));
 
+const hasUnverifiedCreateClaim = (text: string): boolean => {
+  if (!text) return false;
+  const claim = /(?:任务|项目)?.{0,6}(?:已)?创建成功|创建完成|已创建/.test(text);
+  if (!claim) return false;
+  const hasId = /(?:^|\n)\s*[-*]?\s*ID[:：]\s*\d+/.test(text) || /(?:任务|项目)\s*ID[:：]?\s*\d+/.test(text);
+  return !hasId;
+};
+
+const TASK_TITLE_LABEL_RE = /(?:任务标题|标题)/;
+const TASK_DUE_LABEL_RE = /(?:截止时间|截止日期|到期时间|到期日期|到期|due)/i;
+const TASK_PROJECT_LABEL_RE = /(?:关联项目|所属项目|项目)/;
+
+const TASK_TITLE_FIELD_RE = new RegExp(`${TASK_TITLE_LABEL_RE.source}\\s*[:：]`);
+const TASK_DUE_FIELD_RE = new RegExp(`${TASK_DUE_LABEL_RE.source}\\s*[:：]`, "i");
+const TASK_PROJECT_FIELD_RE = new RegExp(`${TASK_PROJECT_LABEL_RE.source}\\s*[:：]`);
+
+const extractLabeledField = (text: string, labelPattern: RegExp): string => {
+  const source = text.replace(/\r/g, "");
+  const lineRegex = new RegExp(`^\\s*${labelPattern.source}\\s*[:：]\\s*(.+?)\\s*$`, `m${labelPattern.flags.includes("i") ? "i" : ""}`);
+  const matched = source.match(lineRegex);
+  return cleanQuotedText((matched?.[1] ?? "").trim());
+};
+
+const isTaskFormText = (text: string): boolean =>
+  TASK_TITLE_FIELD_RE.test(text) &&
+  TASK_DUE_FIELD_RE.test(text) &&
+  TASK_PROJECT_FIELD_RE.test(text);
+
+const extractTaskFormDraft = (text: string): { title?: string; dueAt?: Date; projectName?: string } => {
+  const title = extractLabeledField(text, TASK_TITLE_LABEL_RE);
+  const dueRaw = extractLabeledField(text, TASK_DUE_LABEL_RE);
+  const projectName = extractLabeledField(text, TASK_PROJECT_LABEL_RE);
+  return {
+    title: title || undefined,
+    dueAt: dueRaw ? parseLooseDate(dueRaw) ?? undefined : undefined,
+    projectName: projectName || undefined,
+  };
+};
+
 const extractCreateTaskDraft = (text: string): CreateTaskDraft | null => {
   const explicitCreate = text.match(/(?:创建|新建|建立|添加).{0,8}任务(?:，|,|：|:)?(?:叫|名为|名称是)?\s*([^\n]+)/);
   if (explicitCreate?.[1]) {
@@ -411,6 +450,7 @@ const isPredefinedOperationText = (text: string): boolean => {
   const lowerText = text.toLowerCase();
   if (/(?:创建|新建|建立|添加).{0,8}项目/.test(lowerText)) return true;
   if (extractCreateTaskDraft(text)) return true;
+  if (isTaskFormText(text)) return true;
   if (/(?:创建|新建|添加).{0,4}子任务/.test(lowerText)) return true;
   if (/(?:删除|移除).{0,6}任务\s*(\d+)/.test(lowerText)) return true;
   if (/^(?:请|帮我|麻烦|可以)?\s*(?:删除|移除)\s*\S+/.test(lowerText)) return true;
@@ -839,6 +879,9 @@ export class AiService {
       if (!output) {
         throw new Error("模型未返回有效内容");
       }
+      if (hasUnverifiedCreateClaim(output)) {
+        throw new Error("检测到未校验的“创建成功”回复（缺少ID），已拦截");
+      }
       return {
         output,
         tokensUsed: data.usage?.total_tokens ?? 0,
@@ -939,6 +982,14 @@ export class AiService {
             output += token;
             await onToken(token);
           }
+        }
+
+        if (hasUnverifiedCreateClaim(output)) {
+          return {
+            success: false,
+            output: "",
+            error: "检测到未校验的“创建成功”回复（缺少ID），已拦截。请使用明确创建指令。",
+          };
         }
 
         return {
@@ -1196,6 +1247,34 @@ export class AiService {
 
       // 如果是预定义操作，执行原有逻辑
       if (isExplicitOperation) {
+        if (isTaskFormText(question)) {
+          const form = extractTaskFormDraft(question);
+          if (!form.title) {
+            return {
+              success: true,
+              output: "我识别到了任务表单，但缺少“标题”。请补充后我再创建。",
+              metadata: buildMeta(startedAt),
+            };
+          }
+          const created = await this.createTaskFromDraft(
+            ctx,
+            input.bizId,
+            { title: form.title, projectName: form.projectName },
+            form.dueAt,
+          );
+          return {
+            success: true,
+            output:
+              `任务已创建成功：\n` +
+              `- ID: ${created.id}\n` +
+              `- 标题: ${created.taskName}\n` +
+              `- 状态: ${toTaskStatus(created.status)}\n` +
+              `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+              `- 截止时间: ${form.dueAt ? form.dueAt.toISOString().slice(0, 10) : "未设置"}`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
         if (/^(?:请|帮我|麻烦|可以)?\s*(?:创建|新建|建立|添加)\s*项目\s*$/.test(q)) {
           if (pendingStructured?.first) {
             const created = await this.createProjectByName(ctx, pendingStructured.first);
