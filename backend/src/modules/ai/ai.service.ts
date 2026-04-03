@@ -138,6 +138,46 @@ const parseLooseDate = (raw: string): Date | null => {
   return null;
 };
 
+const parseLooseStructuredFields = (text: string): { first: string; mention?: string; dueAt?: Date } | null => {
+  const parts = text
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const first = cleanQuotedText(parts[0] ?? "");
+  if (!first) return null;
+  const mentionPart = parts.find((p) => /^@\S+/.test(p));
+  const datePart = parts.find((p) => Boolean(parseLooseDate(p)));
+  return {
+    first,
+    mention: mentionPart ? mentionPart.replace(/^@/, "") : undefined,
+    dueAt: datePart ? parseLooseDate(datePart) ?? undefined : undefined,
+  };
+};
+
+const inferActionFromStructuredFields = (
+  parsed: { first: string; mention?: string; dueAt?: Date },
+  bizId?: string,
+): { action: "createTask" | "createProject"; confidence: number } => {
+  const hasProjectWord = /项目/.test(parsed.first);
+  if (hasProjectWord) {
+    return { action: "createProject", confidence: 0.92 };
+  }
+
+  if (bizId && /^\d+$/.test(bizId)) {
+    // 有关联项目上下文时倾向任务，但不再高置信度自动推进，避免误判
+    return { action: "createTask", confidence: 0.72 };
+  }
+
+  const score = (parsed.mention ? 0.35 : 0) + (parsed.dueAt ? 0.35 : 0) + (parsed.first.length >= 2 ? 0.2 : 0);
+  // 无项目上下文时优先推断项目，但给出可计算置信度
+  return { action: "createProject", confidence: Math.min(0.85, 0.45 + score) };
+};
+
+const isLikelyStructuredFieldsText = (text: string): boolean =>
+  /[,，]/.test(text) &&
+  (/@\S+/.test(text) || /\d{6,8}|20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}/.test(text));
+
 const extractCreateTaskDraft = (text: string): CreateTaskDraft | null => {
   const explicitCreate = text.match(/(?:创建|新建|建立|添加).{0,8}任务(?:，|,|：|:)?(?:叫|名为|名称是)?\s*([^\n]+)/);
   if (explicitCreate?.[1]) {
@@ -290,6 +330,28 @@ type PendingTaskCreate = {
   requestedAt: number;
 };
 
+type PendingInferredAction =
+  | {
+      action: "createTask";
+      title: string;
+      dueAt?: Date;
+      bizId?: string;
+      sourceText: string;
+    }
+  | {
+      action: "createProject";
+      projectName: string;
+      sourceText: string;
+    };
+
+type PendingStructuredInput = {
+  first: string;
+  mention?: string;
+  dueAt?: Date;
+  sourceText: string;
+  requestedAt: number;
+};
+
 const extractDeleteTaskTarget = (text: string): DeleteTaskTarget | null => {
   const matched = text.match(/(?:请|帮我|麻烦|可以)?\s*(?:删除|移除)\s*(.+)/);
   if (!matched?.[1]) return null;
@@ -349,6 +411,7 @@ const isPredefinedOperationText = (text: string): boolean => {
   const lowerText = text.toLowerCase();
   if (/(?:创建|新建|建立|添加).{0,8}项目/.test(lowerText)) return true;
   if (extractCreateTaskDraft(text)) return true;
+  if (/(?:创建|新建|添加).{0,4}子任务/.test(lowerText)) return true;
   if (/(?:删除|移除).{0,6}任务\s*(\d+)/.test(lowerText)) return true;
   if (/^(?:请|帮我|麻烦|可以)?\s*(?:删除|移除)\s*\S+/.test(lowerText)) return true;
   if (/(?:删除|移除)/.test(lowerText) && /任务/.test(lowerText)) return true;
@@ -360,8 +423,18 @@ const isPredefinedOperationText = (text: string): boolean => {
 
 export class AiService {
   private readonly pendingTaskCreateMap = new Map<string, PendingTaskCreate>();
+  private readonly pendingInferredActionMap = new Map<string, PendingInferredAction>();
+  private readonly pendingStructuredInputMap = new Map<string, PendingStructuredInput>();
 
   private pendingTaskCreateKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
+  private pendingInferredActionKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
+  private pendingStructuredInputKey(ctx: AuthContext): string {
     return `${ctx.tenantId}:${ctx.userId}`;
   }
 
@@ -422,11 +495,78 @@ export class AiService {
       data: { taskNo: `TASK-${String(created.id)}` },
     });
 
+    const verified = await prisma.task.findFirst({
+      where: { tenantId: ctx.tenantId, id: created.id, delFlag: "0" },
+      select: { id: true },
+    });
+    if (!verified) {
+      throw new Error("任务创建回查失败，未在数据库中找到新记录");
+    }
+
     return {
       id: String(created.id),
       taskName: created.taskName ?? "",
       projectId: created.projectId ? String(created.projectId) : null,
       status: created.status,
+    };
+  }
+
+  private async createProjectByName(
+    ctx: AuthContext,
+    projectName: string,
+  ): Promise<{ id: string; projectName: string; status: string | null; progress: string | null; existed: boolean }> {
+    const duplicated = await prisma.project.findFirst({
+      where: { tenantId: ctx.tenantId, projectName, delFlag: "0" },
+      select: { id: true, projectName: true, status: true, progress: true },
+    });
+    if (duplicated) {
+      return {
+        id: String(duplicated.id),
+        projectName: duplicated.projectName ?? projectName,
+        status: duplicated.status,
+        progress: duplicated.progress == null ? null : String(duplicated.progress),
+        existed: true,
+      };
+    }
+
+    const ts = Date.now();
+    const code = `PRJ-${String(ts).slice(-6)}`;
+    const created = await prisma.project.create({
+      data: {
+        tenantId: ctx.tenantId,
+        projectCode: code,
+        projectName,
+        projectDesc: null,
+        ownerUserId: toDbId(ctx.userId),
+        ownerDeptId: ctx.deptId ? toDbId(ctx.deptId) : null,
+        status: "0",
+        priority: "1",
+        startTime: new Date(),
+        endTime: null,
+        progress: "0",
+        visibility: "0",
+        createDept: ctx.deptId ? toDbId(ctx.deptId) : null,
+        createBy: toDbId(ctx.userId),
+        createTime: new Date(),
+        delFlag: "0",
+      },
+      select: { id: true, projectName: true, status: true, progress: true },
+    });
+
+    const verified = await prisma.project.findFirst({
+      where: { tenantId: ctx.tenantId, id: created.id, delFlag: "0" },
+      select: { id: true },
+    });
+    if (!verified) {
+      throw new Error("项目创建回查失败，未在数据库中找到新记录");
+    }
+
+    return {
+      id: String(created.id),
+      projectName: created.projectName ?? projectName,
+      status: created.status,
+      progress: created.progress == null ? null : String(created.progress),
+      existed: false,
     };
   }
 
@@ -718,9 +858,14 @@ export class AiService {
       const input = chatSchema.parse(params);
       const streamQuestion = input.inputText.trim();
       const hasPendingTaskCreate = this.pendingTaskCreateMap.has(this.pendingTaskCreateKey(ctx));
+      const hasPendingInferred = this.pendingInferredActionMap.has(this.pendingInferredActionKey(ctx));
 
       // 对「事务型命令」优先走确定性规则链路（chat 内含消歧、确认等逻辑）
-      const isOperationIntent = hasPendingTaskCreate || isPredefinedOperationText(streamQuestion);
+      const isOperationIntent =
+        hasPendingTaskCreate ||
+        hasPendingInferred ||
+        isPredefinedOperationText(streamQuestion) ||
+        isLikelyStructuredFieldsText(streamQuestion);
       if (isOperationIntent) {
         return this.chat(params, ctx);
       }
@@ -849,10 +994,16 @@ export class AiService {
       const q = question.toLowerCase();
       const pendingKey = this.pendingTaskCreateKey(ctx);
       const pendingCreate = this.pendingTaskCreateMap.get(pendingKey);
+      const pendingInferKey = this.pendingInferredActionKey(ctx);
+      const pendingInferred = this.pendingInferredActionMap.get(pendingInferKey);
+      const pendingStructuredKey = this.pendingStructuredInputKey(ctx);
+      const pendingStructured = this.pendingStructuredInputMap.get(pendingStructuredKey);
+      const isExplicitOperation = isPredefinedOperationText(question);
 
       if (pendingCreate) {
         if (/^(取消|算了|不用了|先不创建)/.test(question)) {
           this.pendingTaskCreateMap.delete(pendingKey);
+          this.pendingStructuredInputMap.delete(pendingStructuredKey);
           return {
             success: true,
             output: `已取消创建任务「${pendingCreate.title}」。如果需要，随时告诉我重新创建。`,
@@ -879,6 +1030,7 @@ export class AiService {
           dueAt ?? undefined,
         );
         this.pendingTaskCreateMap.delete(pendingKey);
+        this.pendingStructuredInputMap.delete(pendingStructuredKey);
         return {
           success: true,
           output:
@@ -892,10 +1044,139 @@ export class AiService {
         };
       }
 
+      if (pendingInferred) {
+        if (isExplicitOperation) {
+          this.pendingInferredActionMap.delete(pendingInferKey);
+        } else if (/^(确认|是|好的|没问题|ok|okay|确认创建)/i.test(question)) {
+          if (pendingInferred.action === "createTask") {
+            const created = await this.createTaskFromDraft(
+              ctx,
+              pendingInferred.bizId,
+              { title: pendingInferred.title },
+              pendingInferred.dueAt,
+            );
+            this.pendingInferredActionMap.delete(pendingInferKey);
+            this.pendingStructuredInputMap.delete(pendingStructuredKey);
+            return {
+              success: true,
+              output:
+                `已按你的确认创建任务：\n` +
+                `- ID: ${created.id}\n` +
+                `- 标题: ${created.taskName}\n` +
+                `- 状态: ${toTaskStatus(created.status)}\n` +
+                `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+                `- 截止时间: ${pendingInferred.dueAt ? pendingInferred.dueAt.toISOString().slice(0, 10) : "未设置"}`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const rawName = normalizeTaskTitle(pendingInferred.projectName);
+          const projectName = rawName.replace(/[。！!？?]+$/g, "").trim();
+          const created = await this.createProjectByName(ctx, projectName);
+          this.pendingInferredActionMap.delete(pendingInferKey);
+          this.pendingStructuredInputMap.delete(pendingStructuredKey);
+          if (created.existed) {
+            return {
+              success: true,
+              output: `检测到同名项目已存在：${created.projectName}（ID: ${created.id}）。未重复创建。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          return {
+            success: true,
+            output:
+              `已按你的确认创建项目：\n` +
+              `- ID: ${created.id}\n` +
+              `- 名称: ${created.projectName}\n` +
+              `- 状态: ${toProjectStatus(created.status)}\n` +
+              `- 当前进度: ${Number(created.progress ?? 0).toFixed(0)}%`,
+            metadata: buildMeta(startedAt),
+          };
+        } else if (/^(取消|不用了|算了|否|不是)/.test(question)) {
+          this.pendingInferredActionMap.delete(pendingInferKey);
+          this.pendingStructuredInputMap.delete(pendingStructuredKey);
+          return {
+            success: true,
+            output: "已取消这次推断操作。你直接说具体动作，我马上执行。",
+            metadata: buildMeta(startedAt),
+          };
+        } else {
+          return {
+            success: true,
+            output: "我这边在等你确认：回复「确认」立即执行，或回复「取消」。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+      }
+
       const hasExplicitDeleteVerb = /(?:删除|移除)/.test(q);
 
       // 安全护栏：用户只补充了目标名称/括号信息，但未明确说“删除/移除”时，不默认执行删除语义
-      if (!hasExplicitDeleteVerb) {
+      if (!hasExplicitDeleteVerb && !isExplicitOperation) {
+        const looksLikeStructuredFields = isLikelyStructuredFieldsText(question);
+        if (looksLikeStructuredFields) {
+          const parsed = parseLooseStructuredFields(question);
+          if (parsed) {
+            this.pendingStructuredInputMap.set(pendingStructuredKey, {
+              first: parsed.first,
+              mention: parsed.mention,
+              dueAt: parsed.dueAt,
+              sourceText: question,
+              requestedAt: Date.now(),
+            });
+            const inferred = inferActionFromStructuredFields(parsed, input.bizId);
+            const HIGH_CONFIDENCE = 0.8;
+
+            // 仅高置信度走“一句确认后直接执行”
+            if (inferred.confidence >= HIGH_CONFIDENCE && inferred.action === "createTask") {
+              this.pendingInferredActionMap.set(pendingInferKey, {
+                action: "createTask",
+                title: parsed.first,
+                dueAt: parsed.dueAt,
+                bizId: input.bizId,
+                sourceText: question,
+              });
+              return {
+                success: true,
+                output:
+                  `我理解你想创建任务，标题「${parsed.first}」` +
+                  `${parsed.dueAt ? `，截止 ${parsed.dueAt.toISOString().slice(0, 10)}` : ""}。\n` +
+                  `如果我的理解没问题，回复「确认」我就直接创建；不对就回复「取消」并补充说明。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+
+            if (inferred.confidence >= HIGH_CONFIDENCE && inferred.action === "createProject") {
+              this.pendingInferredActionMap.set(pendingInferKey, {
+                action: "createProject",
+                projectName: parsed.first,
+                sourceText: question,
+              });
+              return {
+                success: true,
+                output:
+                  `我理解你可能想创建项目，项目名称先按「${parsed.first}」处理。\n` +
+                  `如果没问题回复「确认」我就直接创建；如果不是这个意图请回复「取消」并告诉我动作。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+
+            return {
+              success: true,
+              output:
+                `我能理解你的信息，但当前置信度不够高，先不自动执行。\n` +
+                `请补一句动作：创建项目 / 创建任务 / 创建子任务。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          return {
+            success: true,
+            output:
+              `我看到了结构化信息（如负责人/日期），但你还没给动作指令。\n` +
+              `请先明确动作：创建项目 / 创建任务 / 创建子任务 / 查看 / 删除。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
         const likelyTargetOnly =
           /^[^\n]{1,80}$/.test(question) &&
           (/[（(].*[)）]/.test(question) || /^[\u4e00-\u9fa5a-zA-Z0-9_-]{2,40}$/.test(question));
@@ -914,58 +1195,106 @@ export class AiService {
       }
 
       // 如果是预定义操作，执行原有逻辑
-      if (isPredefinedOperationText(question)) {
-        // 1) 新建项目：如「帮我建立一个555项目」「创建项目：AICR」
-        const createProjectMatch = question.match(/(?:创建|新建|建立|添加).{0,8}项目(?:，|,|：|:)?(?:叫|名为|名称是)?\s*([^\n]+)/);
+      if (isExplicitOperation) {
+        if (/^(?:请|帮我|麻烦|可以)?\s*(?:创建|新建|建立|添加)\s*项目\s*$/.test(q)) {
+          if (pendingStructured?.first) {
+            const created = await this.createProjectByName(ctx, pendingStructured.first);
+            this.pendingStructuredInputMap.delete(pendingStructuredKey);
+            if (created.existed) {
+              return {
+                success: true,
+                output: `已按你刚才提供的信息匹配到同名项目：${created.projectName}（ID: ${created.id}）。未重复创建。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+            return {
+              success: true,
+              output:
+                `已按你刚才提供的信息创建项目：\n` +
+                `- ID: ${created.id}\n` +
+                `- 名称: ${created.projectName}\n` +
+                `- 状态: ${toProjectStatus(created.status)}\n` +
+                `- 当前进度: ${Number(created.progress ?? 0).toFixed(0)}%`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          return {
+            success: true,
+            output: "收到创建项目指令。请告诉我项目名称（例如：创建项目 AICR 重构）。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+        if (/^(?:请|帮我|麻烦|可以)?\s*(?:创建|新建|建立|添加)\s*任务\s*$/.test(q)) {
+          if (pendingStructured?.first) {
+            if (!pendingStructured.dueAt) {
+              this.pendingTaskCreateMap.set(pendingKey, {
+                title: pendingStructured.first,
+                projectName: undefined,
+                bizId: input.bizId,
+                requestedAt: Date.now(),
+              });
+              this.pendingStructuredInputMap.delete(pendingStructuredKey);
+              return {
+                success: true,
+                output:
+                  `收到，我将按你刚才的信息创建任务「${pendingStructured.first}」。\n` +
+                  `请先确认截止时间：回复日期（例如 2026-08-18 / 20260818），或回复「无截止时间」。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+            const created = await this.createTaskFromDraft(
+              ctx,
+              input.bizId,
+              { title: pendingStructured.first, projectName: undefined },
+              pendingStructured.dueAt,
+            );
+            this.pendingStructuredInputMap.delete(pendingStructuredKey);
+            return {
+              success: true,
+              output:
+                `已按你刚才提供的信息创建任务：\n` +
+                `- ID: ${created.id}\n` +
+                `- 标题: ${created.taskName}\n` +
+                `- 状态: ${toTaskStatus(created.status)}\n` +
+                `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+                `- 截止时间: ${pendingStructured.dueAt.toISOString().slice(0, 10)}`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          return {
+            success: true,
+            output: "收到创建任务指令。请告诉我任务标题（可附带项目与截止时间）。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+        if (/^(?:请|帮我|麻烦|可以)?\s*(?:创建|新建|添加)\s*子任务\s*$/.test(q)) {
+          return {
+            success: true,
+            output: "收到创建子任务指令。请告诉我子任务标题和父任务ID（例如：创建子任务 编写接口文档 到任务 123）。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+        // 1) 新建项目：支持「创建项目 AICR」和「创建AICR项目」
+        const createProjectMatch =
+          question.match(/(?:创建|新建|建立|添加).{0,8}项目(?:，|,|：|:)?(?:叫|名为|名称是)?\s*([^\n]+)/) ||
+          question.match(/(?:创建|新建|建立|添加)\s*([^\n，,。]{1,40})\s*项目/);
         if (createProjectMatch) {
           const rawName = normalizeTaskTitle(createProjectMatch[1] ?? "");
           const projectName = rawName.replace(/[。！!？?]+$/g, "").trim();
           if (!projectName) {
-            return { success: false, output: "", error: "项目名称为空，无法创建项目" };
-          }
-
-          const duplicated = await prisma.project.findFirst({
-            where: {
-              tenantId: ctx.tenantId,
-              projectName,
-              delFlag: "0",
-            },
-            select: { id: true, projectName: true },
-          });
-          if (duplicated) {
             return {
               success: true,
-              output: `检测到同名项目已存在：${duplicated.projectName}（ID: ${duplicated.id}）。如需继续，可换一个项目名称后重试。`,
+              output: "收到创建项目指令。请补充项目名称（例如：创建项目 AICR 重构）。",
               metadata: buildMeta(startedAt),
             };
           }
-
-          const ts = Date.now();
-          const code = `PRJ-${String(ts).slice(-6)}`;
-          const created = await prisma.project.create({
-            data: {
-              tenantId: ctx.tenantId,
-              projectCode: code,
-              projectName,
-              projectDesc: null,
-              ownerUserId: toDbId(ctx.userId),
-              ownerDeptId: ctx.deptId ? toDbId(ctx.deptId) : null,
-              status: "0",
-              priority: "1",
-              startTime: new Date(),
-              endTime: null,
-              progress: "0",
-              visibility: "0",
-              createDept: ctx.deptId ? toDbId(ctx.deptId) : null,
-              createBy: toDbId(ctx.userId),
-              createTime: new Date(),
-              delFlag: "0",
-            },
-            select: { id: true, projectName: true, status: true, progress: true },
-          });
-
-          if (!created) {
-            return { success: false, output: "", error: "项目创建失败" };
+          const created = await this.createProjectByName(ctx, projectName);
+          if (created.existed) {
+            return {
+              success: true,
+              output: `检测到同名项目已存在：${created.projectName}（ID: ${created.id}）。未重复创建。`,
+              metadata: buildMeta(startedAt),
+            };
           }
 
           return {
@@ -1020,6 +1349,65 @@ export class AiService {
               `- 状态: ${toTaskStatus(created.status)}\n` +
               `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
               `- 截止时间: ${createDraft.dueAt.toISOString().slice(0, 10)}`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        // 2.1) 新建子任务：例如「创建子任务 编写接口文档 到任务123」
+        const subtaskStyleA = question.match(
+          /(?:创建|新建|添加).{0,4}子任务(?:，|,|：|:)?\s*([^\n,，。]+?)(?:\s*(?:到|给|归属|属于|在).{0,3}任务\s*(\d+))?\s*$/,
+        );
+        const subtaskStyleB = question.match(
+          /在任务\s*(\d+).{0,4}(?:创建|新建|添加).{0,4}子任务(?:，|,|：|:)?\s*([^\n,，。]+)\s*$/,
+        );
+        if (subtaskStyleA || subtaskStyleB) {
+          const taskId = subtaskStyleA?.[2] || subtaskStyleB?.[1] || "";
+          const subtaskName = normalizeTaskTitle(subtaskStyleA?.[1] || subtaskStyleB?.[2] || "");
+
+          if (!subtaskName) {
+            return { success: false, output: "", error: "子任务标题为空，无法创建子任务" };
+          }
+          if (!taskId) {
+            return {
+              success: true,
+              output: `请补充父任务ID后我再创建子任务，例如：创建子任务 ${subtaskName} 到任务 123。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          const hasPermission = await canManageTask(ctx, taskId);
+          if (!hasPermission) {
+            return { success: false, output: "", error: `你没有任务 ${taskId} 的操作权限` };
+          }
+          const parentTask = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
+            select: { id: true, taskName: true },
+          });
+          if (!parentTask) {
+            return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+          }
+
+          const row = await prisma.subtask.create({
+            data: {
+              tenantId: ctx.tenantId,
+              taskId: parentTask.id,
+              subtaskName,
+              status: "0",
+              priority: "1",
+              createBy: toDbId(ctx.userId),
+              createTime: new Date(),
+              delFlag: "0",
+            },
+            select: { id: true, subtaskName: true, taskId: true, status: true },
+          });
+
+          return {
+            success: true,
+            output:
+              `子任务已创建成功：\n` +
+              `- ID: ${row.id}\n` +
+              `- 标题: ${row.subtaskName}\n` +
+              `- 父任务: ${taskId}（${parentTask.taskName}）\n` +
+              `- 状态: ${row.status === "1" ? "已完成" : row.status === "2" ? "已取消" : "待处理"}`,
             metadata: buildMeta(startedAt),
           };
         }
