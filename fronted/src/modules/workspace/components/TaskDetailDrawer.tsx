@@ -24,6 +24,7 @@ import {
 } from 'antd'
 import { useWorkspaceStore } from '../store/workspace-store'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle } from '../utils/avatar'
+import { buildMemberMentionOptions } from '../utils/member-mentions'
 import {
   useProjectOptionsQuery,
   useCreateSubtaskMutation,
@@ -304,21 +305,7 @@ function TaskDetailDrawer() {
     })
   })
 
-  const mentionOptions = Array.from(mentionCandidateMap.values()).map((user) => ({
-    key: user.id,
-    value: user.name,
-    label: (
-      <div className="comment-mention-option">
-        <Avatar size={28} style={getAvatarStyle(getAvatarSeed(user.id, user.name))}>
-          {getAvatarLabel(user.name)}
-        </Avatar>
-        <div className="comment-mention-meta">
-          <span className="comment-mention-name">{user.name}</span>
-          <span className="comment-mention-hint">{user.hint}</span>
-        </div>
-      </div>
-    ),
-  }))
+  const mentionOptions = buildMemberMentionOptions(Array.from(mentionCandidateMap.values()))
   const userSelectOptions: UserSelectOption[] = userOptions.map((user) => ({
     value: user.value,
     plainLabel: user.label,

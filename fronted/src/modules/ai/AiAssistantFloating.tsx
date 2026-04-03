@@ -13,17 +13,16 @@ import {
   PlusOutlined,
   RobotOutlined,
 } from '@ant-design/icons'
-import { Button, Flex, Input, message, Modal, Select, Tooltip } from 'antd'
+import { Button, Flex, Mentions, message, Modal, Select, Tooltip } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useAiAssistantStore } from './ai-assistant.store'
 import { dispatchAiRequest, confirmAiAction } from './dispatchAiRequest'
 import type { AiIntent } from './aiIntent'
-import { useProjectOptionsQuery } from '../workspace/services/workspace.queries'
+import { useProjectOptionsQuery, useUserOptionsQuery } from '../workspace/services/workspace.queries'
 import { workspaceApi } from '../workspace/services/workspace.api'
 import { useWorkspaceStore } from '../workspace/store/workspace-store'
-
-const { TextArea } = Input
+import { buildMemberMentionOptions } from '../workspace/utils/member-mentions'
 
 const QUICK_SKILLS: Array<{ key: string; label: string; intent: AiIntent; prompt: string }> = [
   { key: 'weekly', label: '生成周报', intent: 'weekly', prompt: '请为本项目生成本周工作周报草稿。' },
@@ -41,6 +40,7 @@ type AiAssistantFloatingProps = {
 type MessageFeedback = 'like' | 'dislike'
 
 type ConfirmationDetail = {
+  actionLabel: string
   scopeLabel: string
   objectLabel: string
   primaryName: string
@@ -144,6 +144,10 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   const closeTaskDetail = useWorkspaceStore((s) => s.closeTaskDetail)
 
   const { data: projectOptions = [], isSuccess: projectsLoaded } = useProjectOptionsQuery(!fabOnly)
+  const { data: userOptions = [] } = useUserOptionsQuery()
+  const mentionOptions = buildMemberMentionOptions(
+    userOptions.map((item) => ({ id: item.value, name: item.label, hint: '组织成员' })),
+  )
 
   useEffect(() => {
     if (open && !prevOpen.current && projectsLoaded && projectOptions.length > 0 && !defaultProjectId) {
@@ -280,6 +284,22 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
 
         if (result.model) setLastModelLabel(result.model)
         updateMessageContent(assistantId, () => result.output)
+        const shouldRefreshWorkspace =
+          /(?:创建|新建|建立|添加|删除|移除|恢复|还原|改为|设为|标记为|更新|修改)/.test(trimmed) ||
+          /已创建成功|已删除|状态已更新|已恢复/.test(result.output || '')
+        if (shouldRefreshWorkspace) {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['todo-list'] }),
+            queryClient.invalidateQueries({ queryKey: ['todo-kanban'] }),
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+            queryClient.invalidateQueries({ queryKey: ['must-do-today'] }),
+            queryClient.invalidateQueries({ queryKey: ['risk-tasks'] }),
+            queryClient.invalidateQueries({ queryKey: ['projects'] }),
+            queryClient.invalidateQueries({ queryKey: ['project-tasks'] }),
+            queryClient.invalidateQueries({ queryKey: ['project-stats'] }),
+            queryClient.invalidateQueries({ queryKey: ['project-options'] }),
+          ])
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : '请求失败，请稍后重试'
         message.error(msg)
@@ -411,6 +431,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
     const action = confirmationData?.confirmationData?.action || confirmationData?.action || ''
     if (action === 'deleteTask') {
       return {
+        actionLabel: '删除',
         scopeLabel: '任务模块',
         objectLabel: '任务',
         primaryName: confirmationParams.taskName || '未命名任务',
@@ -418,7 +439,18 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         tip: '删除后将无法恢复。',
       }
     }
+    if (action === 'updateTaskStatus') {
+      return {
+        actionLabel: '修改状态',
+        scopeLabel: '任务模块',
+        objectLabel: '任务',
+        primaryName: confirmationParams.taskName || `任务${confirmationParams.taskId || ''}`,
+        secondaryName: `目标状态：${confirmationParams.toStatus ? ({ '0': '待开始', '1': '进行中', '2': '已完成', '3': '延期' }[String(confirmationParams.toStatus)] || confirmationParams.toStatus) : '未指定'}`,
+        tip: '确认后将立即写入任务状态。',
+      }
+    }
     return {
+      actionLabel: '操作',
       scopeLabel: '工作模块',
       objectLabel: '对象',
       primaryName: confirmationParams.taskName || confirmationParams.projectName || '待确认对象',
@@ -571,13 +603,19 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
 
           <div className="pm-ai-composer">
             <div className="pm-ai-composer-inner">
-              <TextArea
+              <Mentions
                 className="pm-ai-textarea"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(v) => setInput(v)}
                 onKeyDown={onKeyDown}
                 placeholder="基于工作数据提问，Shift + Enter 换行"
                 autoSize={{ minRows: 3, maxRows: 8 }}
+                options={mentionOptions}
+                prefix={['@']}
+                placement="top"
+                popupClassName="pm-ai-mentions-dropdown"
+                notFoundContent="暂无可提及成员"
+                filterOption={(v, option) => String(option?.value ?? '').toLowerCase().includes(v.toLowerCase())}
               />
               <div className="pm-ai-composer-bar">
                 <div className="pm-ai-toggles">
@@ -633,7 +671,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         {confirmationData ? (
           <div className="pm-ai-confirm">
             <p className="pm-ai-confirm-main">
-              将在「{confirmationDetail.scopeLabel}」执行删除，目标{confirmationDetail.objectLabel}：{confirmationDetail.primaryName}
+              将在「{confirmationDetail.scopeLabel}」执行{confirmationDetail.actionLabel}，目标{confirmationDetail.objectLabel}：{confirmationDetail.primaryName}
             </p>
             {confirmationDetail.secondaryName ? (
               <p className="pm-ai-confirm-sub">{confirmationDetail.secondaryName}</p>

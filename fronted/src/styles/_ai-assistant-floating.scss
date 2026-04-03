@@ -326,7 +326,20 @@ body:has(.task-detail-drawer) .pm-ai-panel--dock {
   overflow: hidden;
 }
 
-.pm-ai-textarea.ant-input {
+.pm-ai-textarea.ant-mentions {
+  border: none !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  background: transparent;
+}
+
+.pm-ai-textarea.ant-mentions:hover,
+.pm-ai-textarea.ant-mentions-focused {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.pm-ai-textarea.ant-mentions textarea {
   padding: 12px 14px 6px;
   border: none !important;
   border-radius: 0;
@@ -334,6 +347,11 @@ body:has(.task-detail-drawer) .pm-ai-panel--dock {
   resize: none;
   font-size: 14px;
   line-height: 1.5;
+  background: transparent;
+}
+
+.pm-ai-mentions-dropdown {
+  z-index: 1405 !important;
 }
 
 .pm-ai-composer-bar {
@@ -413,6 +431,10 @@ body:has(.task-detail-drawer) .pm-ai-panel--dock {
   font-size: 11px;
   color: var(--pm-text-faint);
   text-align: center;
+}
+
+.pm-ai-disclaimer::before {
+  content: '输入 @ 可选择成员，便于指定负责人 · ';
 }
 
 .pm-ai-muted {
