@@ -250,6 +250,33 @@ const extractCreateTaskDraft = (text: string): CreateTaskDraft | null => {
   return null;
 };
 
+const extractProjectNameReply = (text: string): string => {
+  const firstPart = text
+    .split(/[,，\n]/)
+    .map((item) => cleanQuotedText(item))
+    .find(Boolean);
+  return firstPart ? normalizeTaskTitle(firstPart) : "";
+};
+
+const extractSubtaskDraft = (text: string): { title?: string; taskId?: string } => {
+  const patternA = text.match(
+    /(?:创建|新建|添加)?\s*子任务(?:，|,|：|:)?\s*([^\n,，。]+?)(?:\s*(?:到|给|归属|属于|在).{0,3}任务\s*(\d+))?\s*$/,
+  );
+  const patternB = text.match(
+    /在任务\s*(\d+).{0,4}(?:创建|新建|添加)?\s*子任务(?:，|,|：|:)?\s*([^\n,，。]+)\s*$/,
+  );
+  const patternC = text.match(/^([^\n,，。]+?)\s*[,，]\s*(\d+)\s*$/);
+  const patternD = text.match(/^([^\n,，。]+?)\s*(?:到|给|归属|属于|在).{0,3}任务\s*(\d+)\s*$/);
+
+  const taskId = patternA?.[2] || patternB?.[1] || patternC?.[2] || patternD?.[2] || "";
+  const title = normalizeTaskTitle(patternA?.[1] || patternB?.[2] || patternC?.[1] || patternD?.[1] || "");
+
+  return {
+    title: title || undefined,
+    taskId: taskId || undefined,
+  };
+};
+
 const canManageTask = async (ctx: AuthContext, taskId: string) => {
   if (ctx.roleIds.includes("1")) return true;
   const id = toDbId(taskId);
@@ -362,10 +389,25 @@ type UpdateTaskStatusTarget = {
   status: "0" | "1" | "2" | "3";
 };
 
+type MoveTaskToProjectTarget = {
+  taskRaw: string;
+  taskCoreName: string;
+  projectRaw: string;
+  projectCoreName: string;
+};
+
 type PendingTaskCreate = {
-  title: string;
+  title?: string;
   projectName?: string;
   bizId?: string;
+  requestedAt: number;
+};
+
+type PendingProjectCreate = {
+  requestedAt: number;
+};
+
+type PendingSubtaskCreate = {
   requestedAt: number;
 };
 
@@ -446,9 +488,31 @@ const extractUpdateTaskStatusTarget = (text: string): UpdateTaskStatusTarget | n
   return null;
 };
 
+const extractMoveTaskToProjectTarget = (text: string): MoveTaskToProjectTarget | null => {
+  const patterns = [
+    /(?:把|将)?\s*任务\s*(.+?)\s*(?:移动到|移到|挪到|转到|放到)\s*项目\s*(.+?)\s*$/,
+    /(?:把|将)?\s*(.+?)\s*任务\s*(?:移动到|移到|挪到|转到|放到)\s*项目\s*(.+?)\s*$/,
+    /(?:移动|移到|挪到|转到)\s*任务\s*(.+?)\s*(?:到|至)\s*项目\s*(.+?)\s*$/,
+  ];
+
+  for (const pattern of patterns) {
+    const matched = text.match(pattern);
+    if (!matched?.[1] || !matched?.[2]) continue;
+    const taskRaw = cleanQuotedText(matched[1]);
+    const projectRaw = cleanQuotedText(matched[2]);
+    const taskCoreName = cleanQuotedText(taskRaw.replace(/^任务/, "").replace(/任务$/, ""));
+    const projectCoreName = cleanQuotedText(projectRaw.replace(/^项目/, "").replace(/项目$/, ""));
+    if (!taskCoreName || !projectCoreName) continue;
+    return { taskRaw, taskCoreName, projectRaw, projectCoreName };
+  }
+  return null;
+};
+
 const isPredefinedOperationText = (text: string): boolean => {
   const lowerText = text.toLowerCase();
   if (/(?:创建|新建|建立|添加).{0,8}项目/.test(lowerText)) return true;
+  if (/^(?:请|帮我|麻烦|可以)?\s*(?:创建|新建|建立|添加)\s*任务\s*$/.test(lowerText)) return true;
+  if (extractMoveTaskToProjectTarget(text)) return true;
   if (extractCreateTaskDraft(text)) return true;
   if (isTaskFormText(text)) return true;
   if (/(?:创建|新建|添加).{0,4}子任务/.test(lowerText)) return true;
@@ -463,6 +527,8 @@ const isPredefinedOperationText = (text: string): boolean => {
 
 export class AiService {
   private readonly pendingTaskCreateMap = new Map<string, PendingTaskCreate>();
+  private readonly pendingProjectCreateMap = new Map<string, PendingProjectCreate>();
+  private readonly pendingSubtaskCreateMap = new Map<string, PendingSubtaskCreate>();
   private readonly pendingInferredActionMap = new Map<string, PendingInferredAction>();
   private readonly pendingStructuredInputMap = new Map<string, PendingStructuredInput>();
 
@@ -478,32 +544,31 @@ export class AiService {
     return `${ctx.tenantId}:${ctx.userId}`;
   }
 
+  private pendingProjectCreateKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
+  private pendingSubtaskCreateKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
   private async createTaskFromDraft(
     ctx: AuthContext,
     inputBizId: string | undefined,
     draft: Pick<CreateTaskDraft, "title" | "projectName">,
     dueAt?: Date,
-  ): Promise<{ id: string; taskName: string; projectId: string | null; status: string | null }> {
-    let projectId: bigint | null = null;
-    if (inputBizId && /^\d+$/.test(inputBizId)) {
-      const project = await prisma.project.findFirst({
-        where: { tenantId: ctx.tenantId, id: toDbId(inputBizId), delFlag: "0" },
-        select: { id: true },
-      });
-      projectId = project?.id ?? null;
+  ): Promise<{ id: string; taskName: string; projectId: string | null; projectName: string | null; status: string | null }> {
+    const project = await this.resolveProject(ctx, inputBizId, draft.projectName);
+    const requestedProjectName = cleanQuotedText(draft.projectName ?? "");
+    const requestedProjectId = typeof inputBizId === "string" && /^\d+$/.test(inputBizId) ? inputBizId : "";
+    if ((requestedProjectName || requestedProjectId) && !project) {
+      throw new Error(
+        requestedProjectName
+          ? `未找到项目「${requestedProjectName}」，已阻止创建任务`
+          : `未找到关联项目（ID: ${requestedProjectId}），已阻止创建任务`,
+      );
     }
-    if (!projectId && draft.projectName) {
-      const projectByName = await prisma.project.findFirst({
-        where: {
-          tenantId: ctx.tenantId,
-          delFlag: "0",
-          projectName: { contains: draft.projectName, mode: "insensitive" },
-        },
-        orderBy: { id: "desc" },
-        select: { id: true },
-      });
-      projectId = projectByName?.id ?? null;
-    }
+    const projectId = project?.id ?? null;
 
     const created = await prisma.task.create({
       data: {
@@ -547,8 +612,46 @@ export class AiService {
       id: String(created.id),
       taskName: created.taskName ?? "",
       projectId: created.projectId ? String(created.projectId) : null,
+      projectName: project?.projectName ?? null,
       status: created.status,
     };
+  }
+
+  private async resolveProject(
+    ctx: AuthContext,
+    inputBizId?: string,
+    projectName?: string,
+  ): Promise<{ id: bigint; projectName: string } | null> {
+    if (inputBizId && /^\d+$/.test(inputBizId)) {
+      const byId = await prisma.project.findFirst({
+        where: { tenantId: ctx.tenantId, id: toDbId(inputBizId), delFlag: "0" },
+        select: { id: true, projectName: true },
+      });
+      if (byId) return { id: byId.id, projectName: byId.projectName ?? String(inputBizId) };
+    }
+
+    const normalized = cleanQuotedText(projectName ?? "");
+    if (!normalized) return null;
+
+    const exact = await prisma.project.findFirst({
+      where: { tenantId: ctx.tenantId, delFlag: "0", projectName: normalized },
+      orderBy: { id: "desc" },
+      select: { id: true, projectName: true },
+    });
+    if (exact) return { id: exact.id, projectName: exact.projectName ?? normalized };
+
+    const loose = await prisma.project.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        delFlag: "0",
+        projectName: { contains: normalized, mode: "insensitive" },
+      },
+      orderBy: { id: "desc" },
+      select: { id: true, projectName: true },
+    });
+    if (loose) return { id: loose.id, projectName: loose.projectName ?? normalized };
+
+    return null;
   }
 
   private async createProjectByName(
@@ -809,6 +912,7 @@ export class AiService {
 2. **对话式交互**：像真人同事一样聊天，语气亲切自然，避免机械式回答。
 3. **深度追问**：当信息不足时，主动提出最小化、具体的问题来获取必要信息。
 4. **可执行建议**：提供的建议要具体、可操作，最好能给出明确的下一步行动。
+5. **术语准确**：创建项目时，项目名字段一律称为“项目名称”，不要写成“项目描述”。
 
 # 对话风格指南
 - 使用自然的口语化表达，如"我觉得..."、"我们可以..."、"要不要试试..."
@@ -901,11 +1005,17 @@ export class AiService {
       const input = chatSchema.parse(params);
       const streamQuestion = input.inputText.trim();
       const hasPendingTaskCreate = this.pendingTaskCreateMap.has(this.pendingTaskCreateKey(ctx));
+      const hasPendingProjectCreate = this.pendingProjectCreateMap.has(this.pendingProjectCreateKey(ctx));
+      const hasPendingSubtaskCreate = this.pendingSubtaskCreateMap.has(this.pendingSubtaskCreateKey(ctx));
       const hasPendingInferred = this.pendingInferredActionMap.has(this.pendingInferredActionKey(ctx));
+      const hasPendingStructured = this.pendingStructuredInputMap.has(this.pendingStructuredInputKey(ctx));
 
       // 对「事务型命令」优先走确定性规则链路（chat 内含消歧、确认等逻辑）
       const isOperationIntent =
         hasPendingTaskCreate ||
+        hasPendingProjectCreate ||
+        hasPendingSubtaskCreate ||
+        hasPendingStructured ||
         hasPendingInferred ||
         isPredefinedOperationText(streamQuestion) ||
         isLikelyStructuredFieldsText(streamQuestion);
@@ -1045,6 +1155,10 @@ export class AiService {
       const q = question.toLowerCase();
       const pendingKey = this.pendingTaskCreateKey(ctx);
       const pendingCreate = this.pendingTaskCreateMap.get(pendingKey);
+      const pendingProjectKey = this.pendingProjectCreateKey(ctx);
+      const pendingProjectCreate = this.pendingProjectCreateMap.get(pendingProjectKey);
+      const pendingSubtaskKey = this.pendingSubtaskCreateKey(ctx);
+      const pendingSubtaskCreate = this.pendingSubtaskCreateMap.get(pendingSubtaskKey);
       const pendingInferKey = this.pendingInferredActionKey(ctx);
       const pendingInferred = this.pendingInferredActionMap.get(pendingInferKey);
       const pendingStructuredKey = this.pendingStructuredInputKey(ctx);
@@ -1057,9 +1171,86 @@ export class AiService {
           this.pendingStructuredInputMap.delete(pendingStructuredKey);
           return {
             success: true,
-            output: `已取消创建任务「${pendingCreate.title}」。如果需要，随时告诉我重新创建。`,
+            output: `已取消创建任务${pendingCreate.title ? `「${pendingCreate.title}」` : ""}。如果需要，随时告诉我重新创建。`,
             metadata: buildMeta(startedAt),
           };
+        }
+
+        if (!pendingCreate.title) {
+          const title = normalizeTaskTitle(question);
+          if (!title || /^(?:创建|新建|建立|添加)\s*任务$/.test(title)) {
+            return {
+              success: true,
+              output: "我先需要任务标题。你直接回复标题即可，例如：修复登录页样式。",
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const nextPending: PendingTaskCreate = {
+            ...pendingCreate,
+            title,
+          };
+          this.pendingTaskCreateMap.set(pendingKey, nextPending);
+
+          if (pendingCreate.bizId || pendingCreate.projectName) {
+            return {
+              success: true,
+              output:
+                `已记住任务标题「${title}」。\n` +
+                `请再告诉我截止时间：回复日期（例如 2026-08-18 / 20260818），或回复「无截止时间」。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          return {
+            success: true,
+            output:
+              `已记住任务标题「${title}」。\n` +
+              `请告诉我所属项目名称；如果不归属任何项目，回复「无项目」。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        if (!pendingCreate.bizId && !pendingCreate.projectName) {
+          const noProject = /无项目|不关联项目|不属于项目|独立任务/.test(question);
+          const dueAtCandidate = parseLooseDate(question);
+          const noDueCandidate = /无截止时间|不设置截止|不需要截止|无截止|不设置/.test(question);
+
+          if (!dueAtCandidate && !noDueCandidate && !noProject) {
+            const projectName = extractProjectNameReply(question);
+            if (projectName) {
+              const project = await this.resolveProject(ctx, undefined, projectName);
+              if (!project) {
+                return {
+                  success: true,
+                  output:
+                    `没有找到项目「${projectName}」，所以我还没有创建任务。\n` +
+                    `请回复真实存在的项目名称，或回复「无项目」。`,
+                  metadata: buildMeta(startedAt),
+                };
+              }
+              this.pendingTaskCreateMap.set(pendingKey, {
+                ...pendingCreate,
+                bizId: String(project.id),
+                projectName: project.projectName,
+              });
+              return {
+                success: true,
+                output:
+                  `已关联项目「${project.projectName}」。\n` +
+                  `请再告诉我截止时间：回复日期（例如 2026-08-18 / 20260818），或回复「无截止时间」。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+          }
+
+          if (!dueAtCandidate && !noDueCandidate) {
+            return {
+              success: true,
+              output: "我还需要所属项目名称；如果不归属任何项目，回复「无项目」。",
+              metadata: buildMeta(startedAt),
+            };
+          }
         }
 
         const dueAt = parseLooseDate(question);
@@ -1089,8 +1280,154 @@ export class AiService {
             `- ID: ${created.id}\n` +
             `- 标题: ${created.taskName}\n` +
             `- 状态: ${toTaskStatus(created.status)}\n` +
-            `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+            `- 所属项目: ${created.projectName ?? "未归属项目"}\n` +
             `- 截止时间: ${dueAt ? dueAt.toISOString().slice(0, 10) : "未设置"}`,
+          metadata: buildMeta(startedAt),
+        };
+      }
+
+      if (pendingProjectCreate) {
+        if (/^(取消|算了|不用了|先不创建)/.test(question)) {
+          this.pendingProjectCreateMap.delete(pendingProjectKey);
+          this.pendingStructuredInputMap.delete(pendingStructuredKey);
+          return {
+            success: true,
+            output: "已取消本次项目创建。需要时你直接说项目名称，我再继续。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        if (isExplicitOperation && !/(?:创建|新建|建立|添加)\s*项目/.test(q)) {
+          this.pendingProjectCreateMap.delete(pendingProjectKey);
+        } else {
+          const projectName = pendingStructured?.first
+            ? normalizeTaskTitle(pendingStructured.first)
+            : extractProjectNameReply(question);
+          if (!projectName || /^(?:创建|新建|建立|添加)\s*项目$/.test(projectName)) {
+            return {
+              success: true,
+              output: "我还在等项目名称。直接回复名称即可，例如：AICR 重构。",
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const created = await this.createProjectByName(ctx, projectName);
+          this.pendingProjectCreateMap.delete(pendingProjectKey);
+          this.pendingStructuredInputMap.delete(pendingStructuredKey);
+          if (created.existed) {
+            return {
+              success: true,
+              output: `已匹配到同名项目：${created.projectName}（ID: ${created.id}）。未重复创建。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          return {
+            success: true,
+            output:
+              `项目已创建成功：\n` +
+              `- ID: ${created.id}\n` +
+              `- 名称: ${created.projectName}\n` +
+              `- 状态: ${toProjectStatus(created.status)}\n` +
+              `- 当前进度: ${Number(created.progress ?? 0).toFixed(0)}%`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+      }
+
+      if (pendingSubtaskCreate) {
+        if (/^(取消|算了|不用了|先不创建)/.test(question)) {
+          this.pendingSubtaskCreateMap.delete(pendingSubtaskKey);
+          return {
+            success: true,
+            output: "已取消本次子任务创建。需要时你再告诉我。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        if (isExplicitOperation && !/(?:创建|新建|添加)\s*子任务/.test(q)) {
+          this.pendingSubtaskCreateMap.delete(pendingSubtaskKey);
+        } else {
+          const draft = extractSubtaskDraft(question);
+          if (!draft.title || !draft.taskId) {
+            return {
+              success: true,
+              output: "我还缺子任务标题或父任务ID。直接回复“子任务标题, 任务ID”即可，例如：编写接口文档, 123。",
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const hasPermission = await canManageTask(ctx, draft.taskId);
+          if (!hasPermission) {
+            return { success: false, output: "", error: `你没有任务 ${draft.taskId} 的操作权限` };
+          }
+          const parentTask = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: toDbId(draft.taskId), delFlag: "0" },
+            select: { id: true, taskName: true },
+          });
+          if (!parentTask) {
+            return { success: false, output: "", error: `任务 ${draft.taskId} 不存在或已删除` };
+          }
+          const row = await prisma.subtask.create({
+            data: {
+              tenantId: ctx.tenantId,
+              taskId: parentTask.id,
+              subtaskName: draft.title,
+              status: "0",
+              priority: "1",
+              createBy: toDbId(ctx.userId),
+              createTime: new Date(),
+              delFlag: "0",
+            },
+            select: { id: true, subtaskName: true, taskId: true, status: true },
+          });
+          this.pendingSubtaskCreateMap.delete(pendingSubtaskKey);
+          return {
+            success: true,
+            output:
+              `子任务已创建成功：\n` +
+              `- ID: ${row.id}\n` +
+              `- 标题: ${row.subtaskName}\n` +
+              `- 父任务: ${draft.taskId}（${parentTask.taskName}）\n` +
+              `- 状态: ${row.status === "1" ? "已完成" : row.status === "2" ? "已取消" : "待处理"}`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+      }
+
+      if (pendingStructured && /^(确认|创建任务|新建任务|添加任务|创建一个任务|新建一个任务)/i.test(question)) {
+        if (pendingStructured.dueAt) {
+          const created = await this.createTaskFromDraft(
+            ctx,
+            input.bizId,
+            { title: pendingStructured.first, projectName: undefined },
+            pendingStructured.dueAt,
+          );
+          this.pendingStructuredInputMap.delete(pendingStructuredKey);
+          this.pendingInferredActionMap.delete(pendingInferKey);
+          return {
+            success: true,
+            output:
+              `已按你刚才提供的信息创建任务：\n` +
+              `- ID: ${created.id}\n` +
+              `- 标题: ${created.taskName}\n` +
+              `- 状态: ${toTaskStatus(created.status)}\n` +
+              `- 所属项目: ${created.projectName ?? "未归属项目"}\n` +
+              `- 截止时间: ${pendingStructured.dueAt.toISOString().slice(0, 10)}`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+        this.pendingTaskCreateMap.set(pendingKey, {
+          title: pendingStructured.first,
+          projectName: undefined,
+          bizId: input.bizId,
+          requestedAt: Date.now(),
+        });
+        this.pendingStructuredInputMap.delete(pendingStructuredKey);
+        return {
+          success: true,
+          output:
+            `收到，我将按你刚才的信息创建任务「${pendingStructured.first}」。\n` +
+            `请先确认截止时间：回复日期（例如 2026-08-18 / 20260818），或回复「无截止时间」。`,
           metadata: buildMeta(startedAt),
         };
       }
@@ -1115,7 +1452,7 @@ export class AiService {
                 `- ID: ${created.id}\n` +
                 `- 标题: ${created.taskName}\n` +
                 `- 状态: ${toTaskStatus(created.status)}\n` +
-                `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+                `- 所属项目: ${created.projectName ?? "未归属项目"}\n` +
                 `- 截止时间: ${pendingInferred.dueAt ? pendingInferred.dueAt.toISOString().slice(0, 10) : "未设置"}`,
               metadata: buildMeta(startedAt),
             };
@@ -1269,7 +1606,7 @@ export class AiService {
               `- ID: ${created.id}\n` +
               `- 标题: ${created.taskName}\n` +
               `- 状态: ${toTaskStatus(created.status)}\n` +
-              `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+              `- 所属项目: ${created.projectName ?? "未归属项目"}\n` +
               `- 截止时间: ${form.dueAt ? form.dueAt.toISOString().slice(0, 10) : "未设置"}`,
             metadata: buildMeta(startedAt),
           };
@@ -1297,9 +1634,10 @@ export class AiService {
               metadata: buildMeta(startedAt),
             };
           }
+          this.pendingProjectCreateMap.set(pendingProjectKey, { requestedAt: Date.now() });
           return {
             success: true,
-            output: "收到创建项目指令。请告诉我项目名称（例如：创建项目 AICR 重构）。",
+            output: "收到创建项目指令。请直接回复项目名称，例如：AICR 重构。",
             metadata: buildMeta(startedAt),
           };
         }
@@ -1335,21 +1673,26 @@ export class AiService {
                 `- ID: ${created.id}\n` +
                 `- 标题: ${created.taskName}\n` +
                 `- 状态: ${toTaskStatus(created.status)}\n` +
-                `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+                `- 所属项目: ${created.projectName ?? "未归属项目"}\n` +
                 `- 截止时间: ${pendingStructured.dueAt.toISOString().slice(0, 10)}`,
               metadata: buildMeta(startedAt),
             };
           }
+          this.pendingTaskCreateMap.set(pendingKey, {
+            bizId: input.bizId,
+            requestedAt: Date.now(),
+          });
           return {
             success: true,
-            output: "收到创建任务指令。请告诉我任务标题（可附带项目与截止时间）。",
+            output: "收到创建任务指令。请先回复任务标题，我会继续补齐项目和截止时间后为你创建。",
             metadata: buildMeta(startedAt),
           };
         }
         if (/^(?:请|帮我|麻烦|可以)?\s*(?:创建|新建|添加)\s*子任务\s*$/.test(q)) {
+          this.pendingSubtaskCreateMap.set(pendingSubtaskKey, { requestedAt: Date.now() });
           return {
             success: true,
-            output: "收到创建子任务指令。请告诉我子任务标题和父任务ID（例如：创建子任务 编写接口文档 到任务 123）。",
+            output: "收到创建子任务指令。请直接回复“子任务标题, 父任务ID”，例如：编写接口文档, 123。",
             metadata: buildMeta(startedAt),
           };
         }
@@ -1426,7 +1769,7 @@ export class AiService {
               `- ID: ${created.id}\n` +
               `- 标题: ${created.taskName}\n` +
               `- 状态: ${toTaskStatus(created.status)}\n` +
-              `- 所属项目: ${created.projectId ?? "未归属项目"}\n` +
+              `- 所属项目: ${created.projectName ?? "未归属项目"}\n` +
               `- 截止时间: ${createDraft.dueAt.toISOString().slice(0, 10)}`,
             metadata: buildMeta(startedAt),
           };
@@ -1986,6 +2329,79 @@ export class AiService {
               `我找到了多个可能匹配「${statusTarget.raw}」的任务，请先确认具体目标：\n` +
               `${optionText}\n` +
               `请回复更完整名称（可带项目），例如：将 ${ranked[0]!.taskName} 任务改为 ${toTaskStatus(desiredStatus)}。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        // 5.1) 移动任务到项目
+        const moveTarget = extractMoveTaskToProjectTarget(question);
+        if (moveTarget) {
+          const taskRows = await prisma.task.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              delFlag: "0",
+              taskName: { contains: moveTarget.taskCoreName, mode: "insensitive" },
+            },
+            select: { id: true, taskName: true, projectId: true },
+            orderBy: { id: "desc" },
+            take: 10,
+          });
+
+          const taskCandidates: Array<{ id: string; taskName: string }> = [];
+          for (const row of taskRows) {
+            const taskId = String(row.id);
+            if (!(await canManageTask(ctx, taskId))) continue;
+            taskCandidates.push({ id: taskId, taskName: row.taskName ?? "" });
+          }
+
+          const exactTask = taskCandidates.find(
+            (item) => cleanQuotedText(item.taskName).toLowerCase() === moveTarget.taskCoreName.toLowerCase(),
+          );
+          const targetTask = exactTask ?? (taskCandidates.length === 1 ? taskCandidates[0] : null);
+          if (!targetTask) {
+            if (!taskCandidates.length) {
+              return {
+                success: true,
+                output: `我没有找到可操作的任务「${moveTarget.taskRaw}」。请回复更完整的任务名。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
+            return {
+              success: true,
+              output:
+                `我找到了多个可能匹配「${moveTarget.taskRaw}」的任务：\n` +
+                taskCandidates.map((item) => `- ${item.taskName}（ID: ${item.id}）`).join("\n") +
+                `\n请回复完整任务名后我再移动。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const project = await this.resolveProject(ctx, undefined, moveTarget.projectCoreName);
+          if (!project) {
+            return {
+              success: true,
+              output: `我没有找到项目「${moveTarget.projectRaw}」。请回复更完整的项目名称。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const updated = await prisma.task.update({
+            where: { id: toDbId(targetTask.id) },
+            data: {
+              projectId: project.id,
+              updateBy: toDbId(ctx.userId),
+              updateTime: new Date(),
+            },
+            select: { id: true, taskName: true, projectId: true },
+          });
+
+          return {
+            success: true,
+            output:
+              `任务已移动成功：\n` +
+              `- ID: ${updated.id}\n` +
+              `- 标题: ${updated.taskName}\n` +
+              `- 新项目: ${project.projectName}`,
             metadata: buildMeta(startedAt),
           };
         }

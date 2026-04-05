@@ -114,6 +114,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   const [historyOpen, setHistoryOpen] = useState(false)
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [messageFeedbackMap, setMessageFeedbackMap] = useState<Record<string, MessageFeedback | undefined>>({})
+  const [projectSelectOpen, setProjectSelectOpen] = useState(false)
   const [confirmationOpen, setConfirmationOpen] = useState(false)
   const [confirmationData, setConfirmationData] = useState<any>(null)
   const [confirmationAssistantId, setConfirmationAssistantId] = useState<string>('')
@@ -150,8 +151,11 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
   )
 
   useEffect(() => {
-    if (open && !prevOpen.current && projectsLoaded && projectOptions.length > 0 && !defaultProjectId) {
-      setDefaultProjectId(projectOptions[0].value)
+    if (open && projectsLoaded && projectOptions.length > 0) {
+      const hasSelectedProject = projectOptions.some((item) => item.value === defaultProjectId)
+      if (!defaultProjectId || !hasSelectedProject) {
+        setDefaultProjectId(projectOptions[0].value)
+      }
     }
     prevOpen.current = open
   }, [open, projectsLoaded, projectOptions, defaultProjectId, setDefaultProjectId])
@@ -512,17 +516,26 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
             </div>
           </header>
 
-          {workContext && projectOptions.length > 1 ? (
+          {workContext ? (
             <div className="pm-ai-project-row">
               <span className="pm-ai-project-label">关联项目</span>
               <Select
                 className="pm-ai-project-select"
                 size="small"
-                placeholder="选择项目（周报/进度需要）"
-                allowClear
+                placeholder={projectOptions.length > 0 ? '请选择关联项目（任务/子任务/项目分析会使用）' : '暂无可选项目'}
                 options={projectOptions}
                 value={defaultProjectId || undefined}
-                onChange={(v) => setDefaultProjectId(v ?? '')}
+                disabled={projectOptions.length === 0}
+                notFoundContent="暂无可选项目"
+                showSearch
+                optionFilterProp="label"
+                open={projectSelectOpen}
+                onOpenChange={setProjectSelectOpen}
+                getPopupContainer={(triggerNode) => triggerNode.parentElement ?? document.body}
+                onChange={(v) => {
+                  setDefaultProjectId(String(v ?? ''))
+                  setProjectSelectOpen(false)
+                }}
               />
             </div>
           ) : null}
