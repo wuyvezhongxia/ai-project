@@ -411,6 +411,12 @@ type PendingSubtaskCreate = {
   requestedAt: number;
 };
 
+type PendingDeleteTaskBatch = {
+  taskIds: string[];
+  taskNames: string[];
+  requestedAt: number;
+};
+
 type PendingInferredAction =
   | {
       action: "createTask";
@@ -529,6 +535,7 @@ export class AiService {
   private readonly pendingTaskCreateMap = new Map<string, PendingTaskCreate>();
   private readonly pendingProjectCreateMap = new Map<string, PendingProjectCreate>();
   private readonly pendingSubtaskCreateMap = new Map<string, PendingSubtaskCreate>();
+  private readonly pendingDeleteTaskBatchMap = new Map<string, PendingDeleteTaskBatch>();
   private readonly pendingInferredActionMap = new Map<string, PendingInferredAction>();
   private readonly pendingStructuredInputMap = new Map<string, PendingStructuredInput>();
 
@@ -549,6 +556,10 @@ export class AiService {
   }
 
   private pendingSubtaskCreateKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
+  private pendingDeleteTaskBatchKey(ctx: AuthContext): string {
     return `${ctx.tenantId}:${ctx.userId}`;
   }
 
@@ -1007,6 +1018,7 @@ export class AiService {
       const hasPendingTaskCreate = this.pendingTaskCreateMap.has(this.pendingTaskCreateKey(ctx));
       const hasPendingProjectCreate = this.pendingProjectCreateMap.has(this.pendingProjectCreateKey(ctx));
       const hasPendingSubtaskCreate = this.pendingSubtaskCreateMap.has(this.pendingSubtaskCreateKey(ctx));
+      const hasPendingDeleteTaskBatch = this.pendingDeleteTaskBatchMap.has(this.pendingDeleteTaskBatchKey(ctx));
       const hasPendingInferred = this.pendingInferredActionMap.has(this.pendingInferredActionKey(ctx));
       const hasPendingStructured = this.pendingStructuredInputMap.has(this.pendingStructuredInputKey(ctx));
 
@@ -1015,6 +1027,7 @@ export class AiService {
         hasPendingTaskCreate ||
         hasPendingProjectCreate ||
         hasPendingSubtaskCreate ||
+        hasPendingDeleteTaskBatch ||
         hasPendingStructured ||
         hasPendingInferred ||
         isPredefinedOperationText(streamQuestion) ||
@@ -1159,11 +1172,69 @@ export class AiService {
       const pendingProjectCreate = this.pendingProjectCreateMap.get(pendingProjectKey);
       const pendingSubtaskKey = this.pendingSubtaskCreateKey(ctx);
       const pendingSubtaskCreate = this.pendingSubtaskCreateMap.get(pendingSubtaskKey);
+      const pendingDeleteBatchKey = this.pendingDeleteTaskBatchKey(ctx);
+      const pendingDeleteBatch = this.pendingDeleteTaskBatchMap.get(pendingDeleteBatchKey);
       const pendingInferKey = this.pendingInferredActionKey(ctx);
       const pendingInferred = this.pendingInferredActionMap.get(pendingInferKey);
       const pendingStructuredKey = this.pendingStructuredInputKey(ctx);
       const pendingStructured = this.pendingStructuredInputMap.get(pendingStructuredKey);
       const isExplicitOperation = isPredefinedOperationText(question);
+
+      if (pendingDeleteBatch) {
+        const isExpired = Date.now() - pendingDeleteBatch.requestedAt > 10 * 60 * 1000;
+        const normalized = question.replace(/\s+/g, "");
+        if (/^(取消|算了|不删了|先不删)/.test(question) || /^(取消|不删)$/.test(normalized)) {
+          this.pendingDeleteTaskBatchMap.delete(pendingDeleteBatchKey);
+          return {
+            success: true,
+            output: "已取消批量删除。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+        if (!isExpired && /^(都删除|全部删除|全删|确认删除|确认|删除|是|确定)$/.test(normalized)) {
+          const aliveRows = await prisma.task.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              delFlag: "0",
+              id: { in: pendingDeleteBatch.taskIds.map((id) => toDbId(id)) },
+            },
+            select: { id: true, taskName: true },
+          });
+          const manageable: Array<{ id: bigint; taskName: string }> = [];
+          for (const row of aliveRows) {
+            const taskId = String(row.id);
+            if (await canManageTask(ctx, taskId)) {
+              manageable.push({ id: row.id, taskName: row.taskName ?? taskId });
+            }
+          }
+          this.pendingDeleteTaskBatchMap.delete(pendingDeleteBatchKey);
+          if (manageable.length === 0) {
+            return {
+              success: false,
+              output: "",
+              error: "可删除任务为空：这些任务可能已被删除或你没有权限",
+            };
+          }
+          return {
+            success: true,
+            output: `检测到批量删除请求：${manageable.map((r) => r.taskName).join("、")}。请确认是否删除。`,
+            requiresConfirmation: true,
+            confirmationData: {
+              action: "deleteTasks",
+              params: {
+                taskIds: manageable.map((r) => String(r.id)),
+                taskNames: manageable.map((r) => r.taskName),
+                module: "task",
+              },
+              message: `确定要删除这 ${manageable.length} 个任务吗？此操作无法撤销。`,
+            },
+            metadata: buildMeta(startedAt),
+          };
+        }
+        if (isExpired) {
+          this.pendingDeleteTaskBatchMap.delete(pendingDeleteBatchKey);
+        }
+      }
 
       if (pendingCreate) {
         if (/^(取消|算了|不用了|先不创建)/.test(question)) {
@@ -1914,23 +1985,50 @@ export class AiService {
           const deleteTargetRaw = deleteTarget.raw;
           const numericInTarget = deleteTarget.coreName.match(/^(?:任务\s*)?(\d+)$/);
           if (numericInTarget) {
-            // 处理数字ID：直接删除指定任务
+            // 优先按数字ID处理；若不存在则回退到“任务名就是数字”的场景
             const taskId = numericInTarget[1]!;
             const hasPermission = await canManageTask(ctx, taskId);
-            if (!hasPermission) {
-              return { success: false, output: "", error: `你没有任务 ${taskId} 的操作权限` };
-            }
-            const existing = await prisma.task.findFirst({
-              where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
-              select: { id: true, taskName: true, projectId: true },
-            });
-            if (!existing) {
-              return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+            const existingById = hasPermission
+              ? await prisma.task.findFirst({
+                  where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
+                  select: { id: true, taskName: true, projectId: true },
+                })
+              : null;
+            if (!existingById) {
+              const existingByName = await prisma.task.findFirst({
+                where: { tenantId: ctx.tenantId, taskName: taskId, delFlag: "0" },
+                select: { id: true, taskName: true, projectId: true },
+                orderBy: { id: "desc" },
+              });
+              if (!existingByName) {
+                return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+              }
+              const hasNamePermission = await canManageTask(ctx, String(existingByName.id));
+              if (!hasNamePermission) {
+                return { success: false, output: "", error: `你没有任务 ${existingByName.id} 的操作权限` };
+              }
+              const projectByName = existingByName.projectId
+                ? await prisma.project.findFirst({
+                    where: { tenantId: ctx.tenantId, id: existingByName.projectId, delFlag: "0" },
+                    select: { projectName: true },
+                  })
+                : null;
+              return {
+                success: true,
+                output: `检测到删除任务请求：任务「${existingByName.taskName}」${projectByName?.projectName ? `（项目：${projectByName.projectName}）` : ""}。请确认是否删除。`,
+                requiresConfirmation: true,
+                confirmationData: {
+                  action: "deleteTask",
+                  params: { taskId: String(existingByName.id), taskName: existingByName.taskName, projectName: projectByName?.projectName ?? undefined, module: "task" },
+                  message: `确定要删除任务「${existingByName.taskName}」吗？此操作无法撤销。`,
+                },
+                metadata: buildMeta(startedAt),
+              };
             }
 
-            const project = existing.projectId
+            const project = existingById.projectId
               ? await prisma.project.findFirst({
-                  where: { tenantId: ctx.tenantId, id: existing.projectId, delFlag: "0" },
+                  where: { tenantId: ctx.tenantId, id: existingById.projectId, delFlag: "0" },
                   select: { projectName: true },
                 })
               : null;
@@ -1938,12 +2036,12 @@ export class AiService {
             // 返回确认请求，而不是直接删除
             return {
               success: true,
-              output: `检测到删除任务请求：任务「${existing.taskName}」${project?.projectName ? `（项目：${project.projectName}）` : ""}。请确认是否删除。`,
+              output: `检测到删除任务请求：任务「${existingById.taskName}」${project?.projectName ? `（项目：${project.projectName}）` : ""}。请确认是否删除。`,
               requiresConfirmation: true,
               confirmationData: {
                 action: "deleteTask",
-                params: { taskId, taskName: existing.taskName, projectName: project?.projectName ?? undefined, module: "task" },
-                message: `确定要删除任务「${existing.taskName}」吗？此操作无法撤销。`,
+                params: { taskId: String(existingById.id), taskName: existingById.taskName, projectName: project?.projectName ?? undefined, module: "task" },
+                message: `确定要删除任务「${existingById.taskName}」吗？此操作无法撤销。`,
               },
               metadata: buildMeta(startedAt),
             };
@@ -2165,13 +2263,19 @@ export class AiService {
                 .slice(0, 5)
                 .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}）`)
                 .join("\n");
+              const pendingBatch = resolved.slice(0, 5);
+              this.pendingDeleteTaskBatchMap.set(pendingDeleteBatchKey, {
+                taskIds: pendingBatch.map((item) => item.id),
+                taskNames: pendingBatch.map((item) => item.taskName),
+                requestedAt: Date.now(),
+              });
 
               return {
                 success: true,
                 output:
                   `我找到了多个可能匹配「${deleteTargetRaw}」的任务，请先确认具体目标：\n` +
                   `${optionText}\n` +
-                  `请回复更完整名称，例如「删除 ${resolved[0]!.taskName}（${resolved[0]!.projectName || "未归属项目"}，${toTaskStatus(resolved[0]!.status)}）」。`,
+                  `请回复更完整名称，或回复「都删除」批量删除以上候选。`,
                 metadata: buildMeta(startedAt),
               };
             }
@@ -2734,6 +2838,42 @@ export class AiService {
           return {
             success: true,
             output: `任务「${existing.taskName}」已删除，已从任务列表移除（这不是“改为已完成”）。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+        case "deleteTasks": {
+          const taskIds: string[] = Array.isArray(params?.taskIds)
+            ? params.taskIds.map((v: unknown) => String(v)).filter((v: string) => /^\d+$/.test(v))
+            : [];
+          if (taskIds.length === 0) {
+            return { success: false, output: "", error: "批量删除参数无效：缺少 taskIds" };
+          }
+          const rows = await prisma.task.findMany({
+            where: { tenantId: ctx.tenantId, delFlag: "0", id: { in: taskIds.map((id) => toDbId(id)) } },
+            select: { id: true, taskName: true },
+          });
+          if (rows.length === 0) {
+            return { success: false, output: "", error: "可删除任务为空：这些任务可能已被删除" };
+          }
+          const manageable: bigint[] = [];
+          const names: string[] = [];
+          for (const row of rows) {
+            const id = String(row.id);
+            if (await canManageTask(ctx, id)) {
+              manageable.push(row.id);
+              names.push(row.taskName ?? id);
+            }
+          }
+          if (manageable.length === 0) {
+            return { success: false, output: "", error: "你没有这些任务的操作权限" };
+          }
+          await prisma.task.updateMany({
+            where: { tenantId: ctx.tenantId, delFlag: "0", id: { in: manageable } },
+            data: { delFlag: "1", updateBy: toDbId(ctx.userId), updateTime: new Date() },
+          });
+          return {
+            success: true,
+            output: `已删除 ${manageable.length} 个任务：${names.join("、")}。`,
             metadata: buildMeta(startedAt),
           };
         }

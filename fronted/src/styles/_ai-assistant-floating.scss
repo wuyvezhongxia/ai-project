@@ -86,6 +86,15 @@ body:has(.task-detail-drawer) .pm-ai-panel--dock {
   backdrop-filter: blur(8px);
 }
 
+/* 全局弹窗出现时，确保弹窗层级高于 AI 悬浮面板，避免遮挡确认按钮 */
+body:has(.ant-modal-root .ant-modal-wrap) {
+  .pm-ai-panel,
+  .pm-ai-fab,
+  .pm-ai-panel--dock {
+    z-index: 900 !important;
+  }
+}
+
 .pm-ai-header {
   display: flex;
   align-items: flex-start;

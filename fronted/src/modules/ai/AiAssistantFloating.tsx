@@ -453,6 +453,19 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         tip: '确认后将立即写入任务状态。',
       }
     }
+    if (action === 'deleteTasks') {
+      const taskNames = Array.isArray(confirmationParams.taskNames)
+        ? confirmationParams.taskNames.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+        : []
+      return {
+        actionLabel: '批量删除',
+        scopeLabel: '任务模块',
+        objectLabel: '任务',
+        primaryName: taskNames.length > 0 ? `${taskNames.length} 个任务` : '多个任务',
+        secondaryName: taskNames.length > 0 ? `目标：${taskNames.join('、')}` : undefined,
+        tip: '批量删除后将无法恢复。',
+      }
+    }
     return {
       actionLabel: '操作',
       scopeLabel: '工作模块',
