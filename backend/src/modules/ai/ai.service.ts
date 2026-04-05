@@ -396,6 +396,13 @@ type MoveTaskToProjectTarget = {
   projectCoreName: string;
 };
 
+type ViewTaskDetailTarget = {
+  raw: string;
+  coreName: string;
+  projectHint?: string;
+  statusHint?: string;
+};
+
 type PendingTaskCreate = {
   title?: string;
   projectName?: string;
@@ -514,6 +521,45 @@ const extractMoveTaskToProjectTarget = (text: string): MoveTaskToProjectTarget |
   return null;
 };
 
+const extractViewTaskDetailTarget = (text: string): ViewTaskDetailTarget | null => {
+  const patterns = [
+    /(?:查看|查询|详情)\s*任务\s*(.+)\s*$/,
+    /(?:查看|查询|详情)\s*(.+?)\s*任务\s*$/,
+    /(?:查看|查询|详情)\s*(.+)\s*$/,
+  ];
+  let rawTarget = "";
+  for (const pattern of patterns) {
+    const matched = text.match(pattern);
+    if (matched?.[1]) {
+      rawTarget = cleanQuotedText(matched[1]);
+      if (rawTarget) break;
+    }
+  }
+  if (!rawTarget) return null;
+
+  rawTarget = rawTarget.replace(/(?:吧|一下|好吗|可以吗|行吗)\s*$/g, "").trim();
+  const parenthesized = rawTarget.match(/^(.*?)[(（]\s*([^()（）]+)\s*[)）]\s*$/);
+  let coreName = cleanQuotedText(parenthesized?.[1] ?? rawTarget);
+  const hintText = parenthesized?.[2] ?? "";
+  const hintTokens = hintText
+    .split(/[,，、/]/)
+    .map((item) => cleanQuotedText(item))
+    .filter(Boolean);
+  const statusToken = hintTokens.find((token) => /待开始|进行中|已完成|完成|延期/.test(token));
+  const projectToken = hintTokens.find((token) => token !== statusToken);
+
+  coreName = cleanQuotedText(coreName.replace(/^任务/, "").replace(/任务$/, ""));
+  if (!coreName) coreName = rawTarget;
+  if (!coreName) return null;
+
+  return {
+    raw: rawTarget,
+    coreName,
+    projectHint: projectToken,
+    statusHint: statusToken,
+  };
+};
+
 const isPredefinedOperationText = (text: string): boolean => {
   const lowerText = text.toLowerCase();
   if (/(?:创建|新建|建立|添加).{0,8}项目/.test(lowerText)) return true;
@@ -527,6 +573,7 @@ const isPredefinedOperationText = (text: string): boolean => {
   if (/(?:删除|移除)/.test(lowerText) && /任务/.test(lowerText)) return true;
   if (/(?:恢复|还原).{0,6}任务\s*(\d+)/.test(lowerText)) return true;
   if (extractUpdateTaskStatusTarget(text)) return true;
+  if (extractViewTaskDetailTarget(text)) return true;
   if (/(?:查看|查询|详情).{0,4}任务\s*(\d+)/.test(lowerText)) return true;
   return false;
 };
@@ -2510,31 +2557,178 @@ export class AiService {
           };
         }
 
-        // 6) 查询任务详情
-        const detailMatch = question.match(/(?:查看|查询|详情).{0,4}任务\s*(\d+)/);
-        if (detailMatch) {
-          const taskId = detailMatch[1]!;
-          const hasPermission = await canManageTask(ctx, taskId);
-          if (!hasPermission) {
-            return { success: false, output: "", error: `你没有任务 ${taskId} 的访问权限` };
-          }
-          const task = await prisma.task.findFirst({
-            where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
-            select: { id: true, taskName: true, status: true, priority: true, progress: true, dueTime: true, projectId: true },
-          });
-          if (!task) {
-            return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
-          }
-          return {
-            success: true,
-            output: `任务详情：
+        // 6) 查询任务详情（支持任务ID与任务名）
+        const detailTarget = extractViewTaskDetailTarget(question);
+        if (detailTarget) {
+          const numericTarget = detailTarget.coreName.match(/^(\d+)$/);
+
+          const renderTaskDetail = async (task: {
+            id: bigint;
+            taskName: string | null;
+            status: string | null;
+            priority: string | null;
+            progress: any;
+            dueTime: Date | null;
+            projectId: bigint | null;
+          }) => {
+            const project = task.projectId
+              ? await prisma.project.findFirst({
+                  where: { tenantId: ctx.tenantId, id: task.projectId, delFlag: "0" },
+                  select: { projectName: true },
+                })
+              : null;
+            return `任务详情：
 - ID: ${task.id}
 - 标题: ${task.taskName}
 - 状态: ${toTaskStatus(task.status)}
 - 优先级: ${task.priority ?? "未设置"}
 - 进度: ${Number(task.progress ?? 0).toFixed(0)}%
 - 截止时间: ${task.dueTime?.toISOString().slice(0, 10) ?? "未设置"}
-- 所属项目: ${task.projectId ? String(task.projectId) : "未归属项目"}`,
+- 所属项目: ${project?.projectName ?? "未归属项目"}`;
+          };
+
+          if (numericTarget) {
+            const taskId = numericTarget[1]!;
+            const hasPermission = await canManageTask(ctx, taskId);
+            if (!hasPermission) {
+              return { success: false, output: "", error: `你没有任务 ${taskId} 的访问权限` };
+            }
+            const task = await prisma.task.findFirst({
+              where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
+              select: { id: true, taskName: true, status: true, priority: true, progress: true, dueTime: true, projectId: true },
+            });
+            if (!task) {
+              return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+            }
+            return {
+              success: true,
+              output: await renderTaskDetail(task),
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const rows = await prisma.task.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              delFlag: "0",
+              taskName: { contains: detailTarget.coreName, mode: "insensitive" },
+            },
+            select: {
+              id: true,
+              taskName: true,
+              status: true,
+              priority: true,
+              progress: true,
+              dueTime: true,
+              projectId: true,
+            },
+            orderBy: { id: "desc" },
+            take: 20,
+          });
+          const projectIds = Array.from(new Set(rows.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)));
+          const projectRows =
+            projectIds.length > 0
+              ? await prisma.project.findMany({
+                  where: { tenantId: ctx.tenantId, id: { in: projectIds.map((id) => toDbId(id)) }, delFlag: "0" },
+                  select: { id: true, projectName: true },
+                })
+              : [];
+          const projectNameMap = new Map(projectRows.map((row) => [String(row.id), row.projectName ?? ""]));
+
+          const candidates: Array<{
+            id: string;
+            taskName: string;
+            status: string | null;
+            priority: string | null;
+            progress: any;
+            dueTime: Date | null;
+            projectId?: string;
+            projectName?: string;
+          }> = [];
+          for (const row of rows) {
+            const taskId = String(row.id);
+            if (!(await canManageTask(ctx, taskId))) continue;
+            candidates.push({
+              id: taskId,
+              taskName: row.taskName ?? "",
+              status: row.status,
+              priority: row.priority,
+              progress: row.progress,
+              dueTime: row.dueTime,
+              projectId: row.projectId ? String(row.projectId) : undefined,
+              projectName: row.projectId ? projectNameMap.get(String(row.projectId)) : undefined,
+            });
+          }
+
+          if (!candidates.length) {
+            return {
+              success: true,
+              output: `没有找到可访问的任务「${detailTarget.raw}」。请补充更完整任务名或任务ID。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const normalizedCoreName = cleanQuotedText(detailTarget.coreName).toLowerCase();
+          const exactResolved = candidates.filter((item) => cleanQuotedText(item.taskName).toLowerCase() === normalizedCoreName);
+          if (exactResolved.length === 1) {
+            const target = exactResolved[0]!;
+            return {
+              success: true,
+              output: await renderTaskDetail({
+                id: toDbId(target.id),
+                taskName: target.taskName,
+                status: target.status,
+                priority: target.priority,
+                progress: target.progress,
+                dueTime: target.dueTime,
+                projectId: target.projectId ? toDbId(target.projectId) : null,
+              }),
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const ranked = candidates
+            .map((item) => {
+              const normalizedTaskName = normalizeLooseText(item.taskName);
+              const normalizedTarget = normalizeLooseText(detailTarget.coreName);
+              let score = 0;
+              if (normalizedTaskName === normalizedTarget) score += 10;
+              if (normalizedTaskName.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedTaskName)) score += 6;
+              if (normalizedTaskName.includes(normalizedTarget) || normalizedTarget.includes(normalizedTaskName)) score += 4;
+              const distance = levenshteinDistance(normalizedTaskName, normalizedTarget);
+              if (distance <= 2) score += 4 - distance;
+              if (detailTarget.projectHint && item.projectName?.toLowerCase().includes(detailTarget.projectHint.toLowerCase())) score += 2;
+              if (detailTarget.statusHint && toTaskStatus(item.status).includes(detailTarget.statusHint.replace("完成", "已完成"))) score += 2;
+              return { ...item, score };
+            })
+            .sort((a, b) => b.score - a.score);
+          if (ranked.length > 0 && ranked[0]!.score > 0 && ranked.filter((item) => item.score === ranked[0]!.score).length === 1) {
+            const target = ranked[0]!;
+            return {
+              success: true,
+              output: await renderTaskDetail({
+                id: toDbId(target.id),
+                taskName: target.taskName,
+                status: target.status,
+                priority: target.priority,
+                progress: target.progress,
+                dueTime: target.dueTime,
+                projectId: target.projectId ? toDbId(target.projectId) : null,
+              }),
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const optionText = ranked
+            .slice(0, 5)
+            .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}）`)
+            .join("\n");
+          return {
+            success: true,
+            output:
+              `我找到了多个可能匹配「${detailTarget.raw}」的任务，请确认具体目标：\n` +
+              `${optionText}\n` +
+              `请回复更完整名称，例如「查看 ${ranked[0]!.taskName}（${ranked[0]!.projectName || "未归属项目"}，${toTaskStatus(ranked[0]!.status)}）」。`,
             metadata: buildMeta(startedAt),
           };
         }
