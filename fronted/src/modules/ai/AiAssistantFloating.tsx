@@ -392,7 +392,25 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
     message.info('操作已取消')
   }
 
-  const onSend = () => runSend(input)
+  const onSend = () => {
+    const trimmed = input.trim()
+    if (confirmationOpen) {
+      const normalized = trimmed.replace(/\s+/g, '').toLowerCase()
+      if (/^(继续|确认|确定|是|好的|好|ok|okay|yes)$/i.test(normalized)) {
+        void handleConfirm()
+        setInput('')
+        return
+      }
+      if (/^(取消|算了|不用了|先不|no|nope)$/i.test(normalized)) {
+        handleCancel()
+        setInput('')
+        return
+      }
+      message.info('当前有待确认操作，请先回复“确认/继续”或“取消”，或点击弹窗按钮。')
+      return
+    }
+    void runSend(input)
+  }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -451,6 +469,26 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         primaryName: confirmationParams.taskName || `任务${confirmationParams.taskId || ''}`,
         secondaryName: `目标状态：${confirmationParams.toStatus ? ({ '0': '待开始', '1': '进行中', '2': '已完成', '3': '延期' }[String(confirmationParams.toStatus)] || confirmationParams.toStatus) : '未指定'}`,
         tip: '确认后将立即写入任务状态。',
+      }
+    }
+    if (action === 'updateTaskPriority') {
+      return {
+        actionLabel: '修改优先级',
+        scopeLabel: '任务模块',
+        objectLabel: '任务',
+        primaryName: confirmationParams.taskName || `任务${confirmationParams.taskId || ''}`,
+        secondaryName: `目标优先级：${confirmationParams.toPriority ? ({ '0': 'P3', '1': 'P2', '2': 'P1', '3': 'P0' }[String(confirmationParams.toPriority)] || confirmationParams.toPriority) : '未指定'}`,
+        tip: '确认后将立即写入任务优先级。',
+      }
+    }
+    if (action === 'updateTaskDue') {
+      return {
+        actionLabel: '修改截止时间',
+        scopeLabel: '任务模块',
+        objectLabel: '任务',
+        primaryName: confirmationParams.taskName || `任务${confirmationParams.taskId || ''}`,
+        secondaryName: `目标截止时间：${confirmationParams.toDue || '未设置'}`,
+        tip: '确认后将立即写入任务截止时间。',
       }
     }
     if (action === 'deleteTasks') {

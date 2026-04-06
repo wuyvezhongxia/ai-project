@@ -104,6 +104,23 @@ const toTaskStatusCode = (statusText: string): "0" | "1" | "2" | "3" => {
   return "0";
 };
 
+const toTaskPriorityLabel = (priority?: string | null) => {
+  if (priority === "3") return "P0";
+  if (priority === "2") return "P1";
+  if (priority === "1") return "P2";
+  if (priority === "0") return "P3";
+  return "未设置";
+};
+
+const toTaskPriorityCode = (priorityText: string): "0" | "1" | "2" | "3" => {
+  const text = cleanQuotedText(priorityText).toUpperCase();
+  if (/P0|紧急/.test(text)) return "3";
+  if (/P1|高/.test(text)) return "2";
+  if (/P2|中/.test(text)) return "1";
+  if (/P3|低/.test(text)) return "0";
+  return "1";
+};
+
 const normalizeTaskTitle = (raw: string) =>
   raw
     .trim()
@@ -389,6 +406,18 @@ type UpdateTaskStatusTarget = {
   status: "0" | "1" | "2" | "3";
 };
 
+type UpdateTaskPriorityTarget = {
+  raw: string;
+  coreName: string;
+  priority: "0" | "1" | "2" | "3";
+};
+
+type UpdateTaskDueTarget = {
+  raw: string;
+  coreName: string;
+  dueAt: Date | null;
+};
+
 type MoveTaskToProjectTarget = {
   taskRaw: string;
   taskCoreName: string;
@@ -421,6 +450,18 @@ type PendingSubtaskCreate = {
 type PendingDeleteTaskBatch = {
   taskIds: string[];
   taskNames: string[];
+  requestedAt: number;
+};
+
+type PendingConfirmAction = {
+  action: string;
+  params: Record<string, unknown>;
+  requestedAt: number;
+};
+
+type PendingTaskModifyTarget = {
+  raw: string;
+  coreName: string;
   requestedAt: number;
 };
 
@@ -478,7 +519,7 @@ const extractDeleteTaskTarget = (text: string): DeleteTaskTarget | null => {
 };
 
 const extractUpdateTaskStatusTarget = (text: string): UpdateTaskStatusTarget | null => {
-  const statusToken = "(待开始|进行中|已完成|完成|延期)";
+  const statusToken = "(?:[\"“”‘’'「」『』])?(待开始|进行中|已完成|完成|延期)(?:[\"“”‘’'「」『』])?";
   const patterns = [
     new RegExp(`(?:把|将)?\\s*任务\\s*(.+?)\\s*(?:改为|设为|标记为)\\s*${statusToken}`),
     new RegExp(`(?:把|将)?\\s*(.+?)\\s*任务\\s*(?:改为|设为|标记为)\\s*${statusToken}`),
@@ -489,14 +530,76 @@ const extractUpdateTaskStatusTarget = (text: string): UpdateTaskStatusTarget | n
   for (const pattern of patterns) {
     const matched = text.match(pattern);
     if (!matched?.[1] || !matched?.[2]) continue;
-    const rawTarget = cleanQuotedText(matched[1]);
-    const coreName = cleanQuotedText(rawTarget.replace(/^任务/, "").replace(/任务$/, ""));
+    const rawTarget = cleanQuotedText(matched[1]).replace(/^[\"“”‘’'「」『』]+|[\"“”‘’'「」『』]+$/g, "");
+    const coreName = cleanQuotedText(
+      rawTarget
+        .replace(/^任务/, "")
+        .replace(/任务$/, "")
+        .replace(/(?:的)?状态$/, "")
+        .trim(),
+    );
     if (!coreName) continue;
     return {
       raw: rawTarget,
       coreName,
       status: toTaskStatusCode(matched[2]),
     };
+  }
+  return null;
+};
+
+const extractUpdateTaskPriorityTarget = (text: string): UpdateTaskPriorityTarget | null => {
+  const priorityToken = "(P[0-3]|紧急|高|中|低)";
+  const patterns = [
+    new RegExp(`(?:把|将)?\\s*任务\\s*(.+?)\\s*(?:优先级)?\\s*(?:改为|改成|设为|调整为|标记为)\\s*${priorityToken}`),
+    new RegExp(`(?:把|将)?\\s*(.+?)\\s*任务\\s*(?:优先级)?\\s*(?:改为|改成|设为|调整为|标记为)\\s*${priorityToken}`),
+    new RegExp(`(?:把|将)?\\s*(.+?)\\s*(?:的)?优先级\\s*(?:改为|改成|设为|调整为|标记为)\\s*${priorityToken}`),
+  ];
+
+  for (const pattern of patterns) {
+    const matched = text.match(pattern);
+    if (!matched?.[1] || !matched?.[2]) continue;
+    const rawTarget = cleanQuotedText(matched[1]).replace(/^[\"“”‘’'「」『』]+|[\"“”‘’'「」『』]+$/g, "");
+    const coreName = cleanQuotedText(
+      rawTarget
+        .replace(/^任务/, "")
+        .replace(/任务$/, "")
+        .replace(/(?:的)?优先级$/, "")
+        .trim(),
+    );
+    if (!coreName) continue;
+    return {
+      raw: rawTarget,
+      coreName,
+      priority: toTaskPriorityCode(matched[2]),
+    };
+  }
+  return null;
+};
+
+const extractUpdateTaskDueTarget = (text: string): UpdateTaskDueTarget | null => {
+  const patterns = [
+    /(?:把|将)?\s*任务\s*(.+?)\s*(?:截止时间|截止日期|到期时间|到期日期|截止|到期)\s*(?:改为|改成|设为|调整为)\s*(.+)\s*$/,
+    /(?:把|将)?\s*(.+?)\s*任务\s*(?:截止时间|截止日期|到期时间|到期日期|截止|到期)\s*(?:改为|改成|设为|调整为)\s*(.+)\s*$/,
+    /(?:把|将)?\s*(.+?)\s*(?:的)?(?:截止时间|截止日期|到期时间|到期日期|截止|到期)\s*(?:改为|改成|设为|调整为)\s*(.+)\s*$/,
+  ];
+  for (const pattern of patterns) {
+    const matched = text.match(pattern);
+    if (!matched?.[1] || !matched?.[2]) continue;
+    const rawTarget = cleanQuotedText(matched[1]).replace(/^[\"“”‘’'「」『』]+|[\"“”‘’'「」『』]+$/g, "");
+    const dueText = cleanQuotedText(matched[2]);
+    const coreName = cleanQuotedText(
+      rawTarget
+        .replace(/^任务/, "")
+        .replace(/任务$/, "")
+        .replace(/(?:的)?(?:截止时间|截止日期|到期时间|到期日期|截止|到期)$/, "")
+        .trim(),
+    );
+    if (!coreName) continue;
+    const noDue = /无截止时间|不设置截止|不需要截止|无截止|清空截止|取消截止/.test(dueText);
+    const dueAt = noDue ? null : parseLooseDate(dueText);
+    if (!noDue && !dueAt) continue;
+    return { raw: rawTarget, coreName, dueAt };
   }
   return null;
 };
@@ -560,6 +663,43 @@ const extractViewTaskDetailTarget = (text: string): ViewTaskDetailTarget | null 
   };
 };
 
+const extractModifyTaskIntentTarget = (text: string): { raw: string; coreName: string } | null => {
+  const patterns = [
+    /(?:修改|更新|调整)\s*任务\s*(.+?)\s*$/,
+    /(?:修改|更新|调整)\s*(.+?)\s*任务\s*$/,
+  ];
+  for (const pattern of patterns) {
+    const matched = text.match(pattern);
+    if (!matched?.[1]) continue;
+    const raw = cleanQuotedText(matched[1]);
+    const coreName = cleanQuotedText(raw.replace(/^任务/, "").replace(/任务$/, ""));
+    if (!coreName) continue;
+    return { raw, coreName };
+  }
+  return null;
+};
+
+const extractBareStatusChange = (text: string): "0" | "1" | "2" | "3" | null => {
+  const matched = text.match(/(?:任务)?状态\s*(?:改为|改成|设为|标记为)\s*(待开始|进行中|已完成|完成|延期)/);
+  if (!matched?.[1]) return null;
+  return toTaskStatusCode(matched[1]);
+};
+
+const extractBarePriorityChange = (text: string): "0" | "1" | "2" | "3" | null => {
+  const matched = text.match(/优先级\s*(?:改为|改成|设为|调整为|标记为)\s*(P[0-3]|紧急|高|中|低)/i);
+  if (!matched?.[1]) return null;
+  return toTaskPriorityCode(matched[1]);
+};
+
+const extractBareDueChange = (text: string): Date | null | undefined => {
+  const matched = text.match(/(?:截止时间|截止日期|到期时间|到期日期|截止|到期)\s*(?:改为|改成|设为|调整为)\s*(.+)\s*$/);
+  if (!matched?.[1]) return undefined;
+  const dueText = cleanQuotedText(matched[1]);
+  if (/无截止时间|不设置截止|不需要截止|无截止|清空截止|取消截止/.test(dueText)) return null;
+  const parsed = parseLooseDate(dueText);
+  return parsed ?? undefined;
+};
+
 const isPredefinedOperationText = (text: string): boolean => {
   const lowerText = text.toLowerCase();
   if (/(?:创建|新建|建立|添加).{0,8}项目/.test(lowerText)) return true;
@@ -573,6 +713,10 @@ const isPredefinedOperationText = (text: string): boolean => {
   if (/(?:删除|移除)/.test(lowerText) && /任务/.test(lowerText)) return true;
   if (/(?:恢复|还原).{0,6}任务\s*(\d+)/.test(lowerText)) return true;
   if (extractUpdateTaskStatusTarget(text)) return true;
+  if (extractUpdateTaskPriorityTarget(text)) return true;
+  if (extractUpdateTaskDueTarget(text)) return true;
+  if (extractModifyTaskIntentTarget(text)) return true;
+  if (/(?:把|将)?.{0,18}(?:任务)?.{0,18}(?:状态)?.{0,4}(?:改为|改成|设为|标记为).{0,6}(待开始|进行中|已完成|完成|延期)/.test(text)) return true;
   if (extractViewTaskDetailTarget(text)) return true;
   if (/(?:查看|查询|详情).{0,4}任务\s*(\d+)/.test(lowerText)) return true;
   return false;
@@ -583,6 +727,8 @@ export class AiService {
   private readonly pendingProjectCreateMap = new Map<string, PendingProjectCreate>();
   private readonly pendingSubtaskCreateMap = new Map<string, PendingSubtaskCreate>();
   private readonly pendingDeleteTaskBatchMap = new Map<string, PendingDeleteTaskBatch>();
+  private readonly pendingConfirmActionMap = new Map<string, PendingConfirmAction>();
+  private readonly pendingTaskModifyTargetMap = new Map<string, PendingTaskModifyTarget>();
   private readonly pendingInferredActionMap = new Map<string, PendingInferredAction>();
   private readonly pendingStructuredInputMap = new Map<string, PendingStructuredInput>();
 
@@ -607,6 +753,14 @@ export class AiService {
   }
 
   private pendingDeleteTaskBatchKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
+  private pendingConfirmActionKey(ctx: AuthContext): string {
+    return `${ctx.tenantId}:${ctx.userId}`;
+  }
+
+  private pendingTaskModifyTargetKey(ctx: AuthContext): string {
     return `${ctx.tenantId}:${ctx.userId}`;
   }
 
@@ -1066,6 +1220,7 @@ export class AiService {
       const hasPendingProjectCreate = this.pendingProjectCreateMap.has(this.pendingProjectCreateKey(ctx));
       const hasPendingSubtaskCreate = this.pendingSubtaskCreateMap.has(this.pendingSubtaskCreateKey(ctx));
       const hasPendingDeleteTaskBatch = this.pendingDeleteTaskBatchMap.has(this.pendingDeleteTaskBatchKey(ctx));
+      const hasPendingConfirmAction = this.pendingConfirmActionMap.has(this.pendingConfirmActionKey(ctx));
       const hasPendingInferred = this.pendingInferredActionMap.has(this.pendingInferredActionKey(ctx));
       const hasPendingStructured = this.pendingStructuredInputMap.has(this.pendingStructuredInputKey(ctx));
 
@@ -1075,6 +1230,7 @@ export class AiService {
         hasPendingProjectCreate ||
         hasPendingSubtaskCreate ||
         hasPendingDeleteTaskBatch ||
+        hasPendingConfirmAction ||
         hasPendingStructured ||
         hasPendingInferred ||
         isPredefinedOperationText(streamQuestion) ||
@@ -1221,11 +1377,45 @@ export class AiService {
       const pendingSubtaskCreate = this.pendingSubtaskCreateMap.get(pendingSubtaskKey);
       const pendingDeleteBatchKey = this.pendingDeleteTaskBatchKey(ctx);
       const pendingDeleteBatch = this.pendingDeleteTaskBatchMap.get(pendingDeleteBatchKey);
+      const pendingConfirmKey = this.pendingConfirmActionKey(ctx);
+      const pendingConfirm = this.pendingConfirmActionMap.get(pendingConfirmKey);
+      const pendingModifyKey = this.pendingTaskModifyTargetKey(ctx);
+      const pendingModifyTarget = this.pendingTaskModifyTargetMap.get(pendingModifyKey);
       const pendingInferKey = this.pendingInferredActionKey(ctx);
       const pendingInferred = this.pendingInferredActionMap.get(pendingInferKey);
       const pendingStructuredKey = this.pendingStructuredInputKey(ctx);
       const pendingStructured = this.pendingStructuredInputMap.get(pendingStructuredKey);
       const isExplicitOperation = isPredefinedOperationText(question);
+      const scopedProjectId = isNumericId(input.bizId) ? toDbId(input.bizId as string) : null;
+      const hasAlivePendingModify =
+        Boolean(pendingModifyTarget) && Date.now() - (pendingModifyTarget?.requestedAt ?? 0) <= 10 * 60 * 1000;
+      if (pendingModifyTarget && !hasAlivePendingModify) {
+        this.pendingTaskModifyTargetMap.delete(pendingModifyKey);
+      }
+
+      if (pendingConfirm) {
+        const isExpired = Date.now() - pendingConfirm.requestedAt > 10 * 60 * 1000;
+        const normalized = question.replace(/\s+/g, "").toLowerCase();
+        if (isExpired) {
+          this.pendingConfirmActionMap.delete(pendingConfirmKey);
+        } else if (/^(继续|确认|确定|是|好的|好|ok|okay|yes)$/.test(normalized)) {
+          this.pendingConfirmActionMap.delete(pendingConfirmKey);
+          return this.confirmAction(pendingConfirm.action, pendingConfirm.params, ctx);
+        } else if (/^(取消|算了|不执行|先不|no|nope)$/.test(normalized)) {
+          this.pendingConfirmActionMap.delete(pendingConfirmKey);
+          return {
+            success: true,
+            output: "已取消本次修改操作。",
+            metadata: buildMeta(startedAt),
+          };
+        } else if (!isExplicitOperation) {
+          return {
+            success: true,
+            output: "当前有待确认的修改操作。回复「确认/继续」执行，或回复「取消」。",
+            metadata: buildMeta(startedAt),
+          };
+        }
+      }
 
       if (pendingDeleteBatch) {
         const isExpired = Date.now() - pendingDeleteBatch.requestedAt > 10 * 60 * 1000;
@@ -1702,6 +1892,22 @@ export class AiService {
 
       // 如果是预定义操作，执行原有逻辑
       if (isExplicitOperation) {
+        const modifyIntentTarget = extractModifyTaskIntentTarget(question);
+        if (modifyIntentTarget) {
+          this.pendingTaskModifyTargetMap.set(pendingModifyKey, {
+            raw: modifyIntentTarget.raw,
+            coreName: modifyIntentTarget.coreName,
+            requestedAt: Date.now(),
+          });
+          return {
+            success: true,
+            output:
+              `好的，已定位到你要修改的任务「${modifyIntentTarget.coreName}」。\n` +
+              `请告诉我要改哪一项：状态 / 优先级 / 截止时间。\n` +
+              `例如：任务状态改成已完成。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
         if (isTaskFormText(question)) {
           const form = extractTaskFormDraft(question);
           if (!form.title) {
@@ -2042,8 +2248,13 @@ export class AiService {
                 })
               : null;
             if (!existingById) {
-              const existingByName = await prisma.task.findFirst({
-                where: { tenantId: ctx.tenantId, taskName: taskId, delFlag: "0" },
+            const existingByName = await prisma.task.findFirst({
+                where: {
+                  tenantId: ctx.tenantId,
+                  taskName: taskId,
+                  delFlag: "0",
+                  ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+                },
                 select: { id: true, taskName: true, projectId: true },
                 orderBy: { id: "desc" },
               });
@@ -2109,6 +2320,7 @@ export class AiService {
                 where: {
                   tenantId: ctx.tenantId,
                   delFlag: "0",
+                  ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
                   OR: variants.map((name) => ({
                     taskName: { contains: name, mode: "insensitive" },
                   })),
@@ -2153,7 +2365,11 @@ export class AiService {
 
               if (candidates.length === 0) {
                 const fallbackRows = await prisma.task.findMany({
-                  where: { tenantId: ctx.tenantId, delFlag: "0" },
+                  where: {
+                    tenantId: ctx.tenantId,
+                    delFlag: "0",
+                    ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+                  },
                   select: { id: true, taskName: true, status: true, projectId: true },
                   orderBy: { id: "desc" },
                   take: 30,
@@ -2355,7 +2571,18 @@ export class AiService {
         }
 
         // 5) 修改任务状态（支持按任务ID或任务名，并通过确认后执行）
-        const statusTarget = extractUpdateTaskStatusTarget(question);
+        const statusTarget = extractUpdateTaskStatusTarget(question)
+          ?? (hasAlivePendingModify
+            ? (() => {
+                const status = extractBareStatusChange(question);
+                if (!status || !pendingModifyTarget) return null;
+                return {
+                  raw: pendingModifyTarget.raw,
+                  coreName: pendingModifyTarget.coreName,
+                  status,
+                } as UpdateTaskStatusTarget;
+              })()
+            : null);
         if (statusTarget) {
           const desiredStatus = statusTarget.status;
           const numericTarget = statusTarget.coreName.match(/^(\d+)$/);
@@ -2373,19 +2600,26 @@ export class AiService {
             if (!existing) {
               return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
             }
+            const confirmParams = {
+              taskId,
+              taskName: existing.taskName,
+              fromStatus: existing.status,
+              toStatus: desiredStatus,
+              module: "task",
+            };
+            this.pendingConfirmActionMap.set(pendingConfirmKey, {
+              action: "updateTaskStatus",
+              params: confirmParams,
+              requestedAt: Date.now(),
+            });
+            this.pendingTaskModifyTargetMap.delete(pendingModifyKey);
             return {
               success: true,
               output: `检测到修改状态请求：任务「${existing.taskName}」将变更为「${toTaskStatus(desiredStatus)}」。请确认是否执行。`,
               requiresConfirmation: true,
               confirmationData: {
                 action: "updateTaskStatus",
-                params: {
-                  taskId,
-                  taskName: existing.taskName,
-                  fromStatus: existing.status,
-                  toStatus: desiredStatus,
-                  module: "task",
-                },
+                params: confirmParams,
                 message: `确定将任务「${existing.taskName}」状态改为「${toTaskStatus(desiredStatus)}」吗？`,
               },
               metadata: buildMeta(startedAt),
@@ -2396,6 +2630,7 @@ export class AiService {
             where: {
               tenantId: ctx.tenantId,
               delFlag: "0",
+              ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
               taskName: { contains: statusTarget.coreName, mode: "insensitive" },
             },
             select: { id: true, taskName: true, status: true, projectId: true },
@@ -2426,9 +2661,130 @@ export class AiService {
           }
 
           if (!candidates.length) {
+            if (scopedProjectId) {
+              const queryRowsAll = await prisma.task.findMany({
+                where: {
+                  tenantId: ctx.tenantId,
+                  delFlag: "0",
+                  taskName: { contains: statusTarget.coreName, mode: "insensitive" },
+                },
+                select: { id: true, taskName: true, status: true, projectId: true },
+                orderBy: { id: "desc" },
+                take: 20,
+              });
+              const projectIdsAll = Array.from(
+                new Set(queryRowsAll.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)),
+              );
+              const projectRowsAll =
+                projectIdsAll.length > 0
+                  ? await prisma.project.findMany({
+                      where: { tenantId: ctx.tenantId, id: { in: projectIdsAll.map((id) => toDbId(id)) }, delFlag: "0" },
+                      select: { id: true, projectName: true },
+                    })
+                  : [];
+              const projectNameMapAll = new Map(projectRowsAll.map((row) => [String(row.id), row.projectName ?? ""]));
+
+              const candidatesAll: Array<{ id: string; taskName: string; status: string | null; projectName?: string }> = [];
+              for (const row of queryRowsAll) {
+                const taskId = String(row.id);
+                if (await canManageTask(ctx, taskId)) {
+                  candidatesAll.push({
+                    id: taskId,
+                    taskName: row.taskName ?? "",
+                    status: row.status,
+                    projectName: row.projectId ? projectNameMapAll.get(String(row.projectId)) : undefined,
+                  });
+                }
+              }
+
+              if (candidatesAll.length === 1) {
+                const best = candidatesAll[0]!;
+                const confirmParams = {
+                  taskId: best.id,
+                  taskName: best.taskName,
+                  fromStatus: best.status,
+                  toStatus: desiredStatus,
+                  projectName: best.projectName,
+                  module: "task",
+                };
+                this.pendingConfirmActionMap.set(pendingConfirmKey, {
+                  action: "updateTaskStatus",
+                  params: confirmParams,
+                  requestedAt: Date.now(),
+                });
+                this.pendingTaskModifyTargetMap.delete(pendingModifyKey);
+                return {
+                  success: true,
+                  output:
+                    `当前关联项目下未找到该任务，已自动扩展到全部项目并命中：` +
+                    `任务「${best.taskName}」${best.projectName ? `（项目：${best.projectName}）` : ""}。\n` +
+                    `将变更为「${toTaskStatus(desiredStatus)}」，请确认是否执行。`,
+                  requiresConfirmation: true,
+                  confirmationData: {
+                    action: "updateTaskStatus",
+                    params: confirmParams,
+                    message: `确定将任务「${best.taskName}」状态改为「${toTaskStatus(desiredStatus)}」吗？`,
+                  },
+                  metadata: buildMeta(startedAt),
+                };
+              }
+
+              if (candidatesAll.length > 1) {
+                const optionText = candidatesAll
+                  .slice(0, 5)
+                  .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}）`)
+                  .join("\n");
+                return {
+                  success: true,
+                  output:
+                    `当前关联项目下未找到该任务，我已扩展到全部项目，找到多个候选：\n` +
+                    `${optionText}\n` +
+                    `请回复更完整名称（可带项目），例如：将 ${candidatesAll[0]!.taskName}（${candidatesAll[0]!.projectName || "未归属项目"}）改为 ${toTaskStatus(desiredStatus)}。`,
+                  metadata: buildMeta(startedAt),
+                };
+              }
+            }
+            // 兜底：明确区分“确实不存在”与“存在但当前无权限操作”
+            const existingRows = await prisma.task.findMany({
+              where: {
+                tenantId: ctx.tenantId,
+                delFlag: "0",
+                taskName: { contains: statusTarget.coreName, mode: "insensitive" },
+              },
+              select: { id: true, taskName: true, status: true, projectId: true },
+              orderBy: { id: "desc" },
+              take: 10,
+            });
+            if (existingRows.length > 0) {
+              const projectIdsExist = Array.from(
+                new Set(existingRows.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)),
+              );
+              const projectRowsExist =
+                projectIdsExist.length > 0
+                  ? await prisma.project.findMany({
+                      where: { tenantId: ctx.tenantId, id: { in: projectIdsExist.map((id) => toDbId(id)) }, delFlag: "0" },
+                      select: { id: true, projectName: true },
+                    })
+                  : [];
+              const projectNameMapExist = new Map(projectRowsExist.map((row) => [String(row.id), row.projectName ?? ""]));
+              const preview = existingRows
+                .slice(0, 5)
+                .map((row) => `- ${row.taskName}（${row.projectId ? projectNameMapExist.get(String(row.projectId)) || "未归属项目" : "未归属项目"}，${toTaskStatus(row.status)}）`)
+                .join("\n");
+              return {
+                success: true,
+                output:
+                  `我按实际数据查到了同名/近似任务，但你当前不可操作（可能是权限限制）。\n` +
+                  `${preview}\n` +
+                  `你可以改用可操作任务ID，或联系项目管理员授权后再试。`,
+                metadata: buildMeta(startedAt),
+              };
+            }
             return {
               success: true,
-              output: `没有找到可操作的任务「${statusTarget.raw}」。请补充更完整任务名，或直接使用任务ID。`,
+              output:
+                `没有找到可操作的任务「${statusTarget.raw}」${scopedProjectId ? "（已按当前关联项目范围检索）" : ""}。` +
+                `请补充更完整任务名，或直接使用任务ID。`,
               metadata: buildMeta(startedAt),
             };
           }
@@ -2449,6 +2805,20 @@ export class AiService {
           const best = ranked[0];
 
           if (best && best.score > 0 && ranked.filter((item) => item.score === best.score).length === 1) {
+            const confirmParams = {
+              taskId: best.id,
+              taskName: best.taskName,
+              fromStatus: best.status,
+              toStatus: desiredStatus,
+              projectName: best.projectName,
+              module: "task",
+            };
+            this.pendingConfirmActionMap.set(pendingConfirmKey, {
+              action: "updateTaskStatus",
+              params: confirmParams,
+              requestedAt: Date.now(),
+            });
+            this.pendingTaskModifyTargetMap.delete(pendingModifyKey);
             return {
               success: true,
               output:
@@ -2456,14 +2826,7 @@ export class AiService {
               requiresConfirmation: true,
               confirmationData: {
                 action: "updateTaskStatus",
-                params: {
-                  taskId: best.id,
-                  taskName: best.taskName,
-                  fromStatus: best.status,
-                  toStatus: desiredStatus,
-                  projectName: best.projectName,
-                  module: "task",
-                },
+                params: confirmParams,
                 message: `确定将任务「${best.taskName}」状态改为「${toTaskStatus(desiredStatus)}」吗？`,
               },
               metadata: buildMeta(startedAt),
@@ -2480,6 +2843,240 @@ export class AiService {
               `我找到了多个可能匹配「${statusTarget.raw}」的任务，请先确认具体目标：\n` +
               `${optionText}\n` +
               `请回复更完整名称（可带项目），例如：将 ${ranked[0]!.taskName} 任务改为 ${toTaskStatus(desiredStatus)}。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        // 5.0.1) 修改任务优先级
+        const priorityTarget = extractUpdateTaskPriorityTarget(question)
+          ?? (hasAlivePendingModify
+            ? (() => {
+                const priority = extractBarePriorityChange(question);
+                if (!priority || !pendingModifyTarget) return null;
+                return {
+                  raw: pendingModifyTarget.raw,
+                  coreName: pendingModifyTarget.coreName,
+                  priority,
+                } as UpdateTaskPriorityTarget;
+              })()
+            : null);
+        if (priorityTarget) {
+          const desiredPriority = priorityTarget.priority;
+          const queryRows = await prisma.task.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              delFlag: "0",
+              ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+              taskName: { contains: priorityTarget.coreName, mode: "insensitive" },
+            },
+            select: { id: true, taskName: true, status: true, priority: true, projectId: true },
+            orderBy: { id: "desc" },
+            take: 20,
+          });
+          const projectIds = Array.from(new Set(queryRows.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)));
+          const projectRows =
+            projectIds.length > 0
+              ? await prisma.project.findMany({
+                  where: { tenantId: ctx.tenantId, id: { in: projectIds.map((id) => toDbId(id)) }, delFlag: "0" },
+                  select: { id: true, projectName: true },
+                })
+              : [];
+          const projectNameMap = new Map(projectRows.map((row) => [String(row.id), row.projectName ?? ""]));
+
+          const candidates: Array<{ id: string; taskName: string; status: string | null; priority: string | null; projectName?: string }> = [];
+          for (const row of queryRows) {
+            const taskId = String(row.id);
+            if (await canManageTask(ctx, taskId)) {
+              candidates.push({
+                id: taskId,
+                taskName: row.taskName ?? "",
+                status: row.status,
+                priority: row.priority,
+                projectName: row.projectId ? projectNameMap.get(String(row.projectId)) : undefined,
+              });
+            }
+          }
+          if (!candidates.length) {
+            return {
+              success: true,
+              output:
+                `没有找到可操作的任务「${priorityTarget.raw}」${scopedProjectId ? "（已按当前关联项目范围检索）" : ""}。` +
+                `请补充更完整任务名，或直接使用任务ID。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const normalizedCoreName = cleanQuotedText(priorityTarget.coreName).toLowerCase();
+          const exactResolved = candidates.filter((item) => cleanQuotedText(item.taskName).toLowerCase() === normalizedCoreName);
+          const target = exactResolved.length === 1 ? exactResolved[0]! : null;
+          const bestTarget =
+            target ??
+            candidates
+              .map((item) => {
+                const normalizedTaskName = normalizeLooseText(item.taskName);
+                const normalizedTarget = normalizeLooseText(priorityTarget.coreName);
+                let score = 0;
+                if (normalizedTaskName === normalizedTarget) score += 10;
+                if (normalizedTaskName.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedTaskName)) score += 6;
+                if (normalizedTaskName.includes(normalizedTarget) || normalizedTarget.includes(normalizedTaskName)) score += 4;
+                const distance = levenshteinDistance(normalizedTaskName, normalizedTarget);
+                if (distance <= 2) score += 4 - distance;
+                return { ...item, score };
+              })
+              .sort((a, b) => b.score - a.score)[0];
+          if (!bestTarget || (bestTarget as { score?: number }).score === 0) {
+            return {
+              success: true,
+              output:
+                `没有找到可操作的任务「${priorityTarget.raw}」${scopedProjectId ? "（已按当前关联项目范围检索）" : ""}。` +
+                `请补充更完整任务名，或直接使用任务ID。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          const tied = target ? 1 : candidates.filter((item) => {
+            const s1 = normalizeLooseText(item.taskName);
+            const s2 = normalizeLooseText(priorityTarget.coreName);
+            let score = 0;
+            if (s1 === s2) score += 10;
+            if (s1.startsWith(s2) || s2.startsWith(s1)) score += 6;
+            if (s1.includes(s2) || s2.includes(s1)) score += 4;
+            const distance = levenshteinDistance(s1, s2);
+            if (distance <= 2) score += 4 - distance;
+            return score === (bestTarget as { score?: number }).score;
+          }).length;
+          if (!target && tied > 1) {
+            const optionText = candidates
+              .slice(0, 5)
+              .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}，${toTaskPriorityLabel(item.priority)}）`)
+              .join("\n");
+            return {
+              success: true,
+              output: `我找到了多个可能匹配「${priorityTarget.raw}」的任务，请确认具体目标：\n${optionText}`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+
+          const resolvedTarget = target ?? (bestTarget as { id: string; taskName: string; status: string | null; priority: string | null; projectName?: string });
+          const confirmParams = {
+            taskId: resolvedTarget.id,
+            taskName: resolvedTarget.taskName,
+            fromPriority: resolvedTarget.priority,
+            toPriority: desiredPriority,
+            projectName: resolvedTarget.projectName,
+            module: "task",
+          };
+          this.pendingConfirmActionMap.set(pendingConfirmKey, {
+            action: "updateTaskPriority",
+            params: confirmParams,
+            requestedAt: Date.now(),
+          });
+          this.pendingTaskModifyTargetMap.delete(pendingModifyKey);
+          return {
+            success: true,
+            output: `检测到修改优先级请求：任务「${resolvedTarget.taskName}」${resolvedTarget.projectName ? `（项目：${resolvedTarget.projectName}）` : ""}将变更为「${toTaskPriorityLabel(desiredPriority)}」。请确认是否执行。`,
+            requiresConfirmation: true,
+            confirmationData: {
+              action: "updateTaskPriority",
+              params: confirmParams,
+              message: `确定将任务「${resolvedTarget.taskName}」优先级改为「${toTaskPriorityLabel(desiredPriority)}」吗？`,
+            },
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        // 5.0.2) 修改任务截止时间
+        const dueTarget = extractUpdateTaskDueTarget(question)
+          ?? (hasAlivePendingModify
+            ? (() => {
+                const dueAt = extractBareDueChange(question);
+                if (dueAt === undefined || !pendingModifyTarget) return null;
+                return {
+                  raw: pendingModifyTarget.raw,
+                  coreName: pendingModifyTarget.coreName,
+                  dueAt,
+                } as UpdateTaskDueTarget;
+              })()
+            : null);
+        if (dueTarget) {
+          const queryRows = await prisma.task.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              delFlag: "0",
+              ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+              taskName: { contains: dueTarget.coreName, mode: "insensitive" },
+            },
+            select: { id: true, taskName: true, status: true, dueTime: true, projectId: true },
+            orderBy: { id: "desc" },
+            take: 20,
+          });
+          const projectIds = Array.from(new Set(queryRows.map((row) => (row.projectId ? String(row.projectId) : "")).filter(Boolean)));
+          const projectRows =
+            projectIds.length > 0
+              ? await prisma.project.findMany({
+                  where: { tenantId: ctx.tenantId, id: { in: projectIds.map((id) => toDbId(id)) }, delFlag: "0" },
+                  select: { id: true, projectName: true },
+                })
+              : [];
+          const projectNameMap = new Map(projectRows.map((row) => [String(row.id), row.projectName ?? ""]));
+          const candidates: Array<{ id: string; taskName: string; status: string | null; dueTime: Date | null; projectName?: string }> = [];
+          for (const row of queryRows) {
+            const taskId = String(row.id);
+            if (await canManageTask(ctx, taskId)) {
+              candidates.push({
+                id: taskId,
+                taskName: row.taskName ?? "",
+                status: row.status,
+                dueTime: row.dueTime,
+                projectName: row.projectId ? projectNameMap.get(String(row.projectId)) : undefined,
+              });
+            }
+          }
+          if (!candidates.length) {
+            return {
+              success: true,
+              output:
+                `没有找到可操作的任务「${dueTarget.raw}」${scopedProjectId ? "（已按当前关联项目范围检索）" : ""}。` +
+                `请补充更完整任务名，或直接使用任务ID。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          const normalizedCoreName = cleanQuotedText(dueTarget.coreName).toLowerCase();
+          const exactResolved = candidates.filter((item) => cleanQuotedText(item.taskName).toLowerCase() === normalizedCoreName);
+          const resolvedTarget = exactResolved.length === 1 ? exactResolved[0]! : candidates[0]!;
+          if (exactResolved.length !== 1 && candidates.length > 1) {
+            const optionText = candidates
+              .slice(0, 5)
+              .map((item) => `- ${item.taskName}（${item.projectName || "未归属项目"}，${toTaskStatus(item.status)}）`)
+              .join("\n");
+            return {
+              success: true,
+              output: `我找到了多个可能匹配「${dueTarget.raw}」的任务，请确认具体目标：\n${optionText}`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          const confirmParams = {
+            taskId: resolvedTarget.id,
+            taskName: resolvedTarget.taskName,
+            fromDue: resolvedTarget.dueTime ? resolvedTarget.dueTime.toISOString().slice(0, 10) : null,
+            toDue: dueTarget.dueAt ? dueTarget.dueAt.toISOString().slice(0, 10) : null,
+            projectName: resolvedTarget.projectName,
+            module: "task",
+          };
+          this.pendingConfirmActionMap.set(pendingConfirmKey, {
+            action: "updateTaskDue",
+            params: confirmParams,
+            requestedAt: Date.now(),
+          });
+          this.pendingTaskModifyTargetMap.delete(pendingModifyKey);
+          return {
+            success: true,
+            output: `检测到修改截止时间请求：任务「${resolvedTarget.taskName}」${resolvedTarget.projectName ? `（项目：${resolvedTarget.projectName}）` : ""}将变更为「${confirmParams.toDue ?? "未设置"}」。请确认是否执行。`,
+            requiresConfirmation: true,
+            confirmationData: {
+              action: "updateTaskDue",
+              params: confirmParams,
+              message: `确定将任务「${resolvedTarget.taskName}」截止时间改为「${confirmParams.toDue ?? "未设置"}」吗？`,
+            },
             metadata: buildMeta(startedAt),
           };
         }
@@ -2611,6 +3208,7 @@ export class AiService {
             where: {
               tenantId: ctx.tenantId,
               delFlag: "0",
+              ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
               taskName: { contains: detailTarget.coreName, mode: "insensitive" },
             },
             select: {
@@ -2663,7 +3261,9 @@ export class AiService {
           if (!candidates.length) {
             return {
               success: true,
-              output: `没有找到可访问的任务「${detailTarget.raw}」。请补充更完整任务名或任务ID。`,
+              output:
+                `没有找到可访问的任务「${detailTarget.raw}」${scopedProjectId ? "（已按当前关联项目范围检索）" : ""}。` +
+                `请补充更完整任务名或任务ID。`,
               metadata: buildMeta(startedAt),
             };
           }
@@ -2732,6 +3332,19 @@ export class AiService {
             metadata: buildMeta(startedAt),
           };
         }
+      }
+      // 命中了“事务型”语义，但未被任何确定性分支接住：明确告知“未执行”，避免模型自由发挥造成假成功
+      if (isExplicitOperation) {
+        return {
+          success: true,
+          output:
+            "我识别到你在发起操作指令，但当前信息不足或目标不唯一，因此未执行任何写入操作。\n" +
+            "请补充明确目标（任务ID或完整任务名），例如：\n" +
+            "1) 将任务 19 状态改为已完成\n" +
+            "2) 将任务 ggg 优先级改为P1\n" +
+            "3) 将任务 ggg 截止时间改为 2026-08-18",
+          metadata: buildMeta(startedAt),
+        };
       }
       // 非预定义操作使用Skill路由器
       try {
@@ -3005,6 +3618,7 @@ export class AiService {
 
   async confirmAction(action: string, params: any, ctx: AuthContext): Promise<AiResponse> {
     const startedAt = Date.now();
+    this.pendingConfirmActionMap.delete(this.pendingConfirmActionKey(ctx));
 
     try {
       switch (action) {
@@ -3105,9 +3719,105 @@ export class AiService {
               updateTime: new Date(),
             },
           });
+          const verified = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: existing.id, delFlag: "0" },
+            select: { id: true, taskName: true, status: true },
+          });
+          if (!verified || verified.status !== toStatus) {
+            return { success: false, output: "", error: "状态更新回查失败：数据库结果与预期不一致" };
+          }
           return {
             success: true,
-            output: `任务「${existing.taskName}」状态已更新为「${toTaskStatus(toStatus)}」。`,
+            output: `任务「${verified.taskName}」(ID: ${verified.id}) 状态已更新为「${toTaskStatus(verified.status)}」。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        case "updateTaskPriority": {
+          const { taskId, toPriority } = params as { taskId?: string; toPriority?: string };
+          if (!taskId || !toPriority || !["0", "1", "2", "3"].includes(toPriority)) {
+            return { success: false, output: "", error: "修改任务优先级参数无效" };
+          }
+          const hasPermission = await canManageTask(ctx, taskId);
+          if (!hasPermission) {
+            return { success: false, output: "", error: `你没有任务 ${taskId} 的操作权限` };
+          }
+          const existing = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
+            select: { id: true, taskName: true, priority: true },
+          });
+          if (!existing) {
+            return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+          }
+          if (existing.priority === toPriority) {
+            return {
+              success: true,
+              output: `任务「${existing.taskName}」当前已是「${toTaskPriorityLabel(toPriority)}」，无需重复修改。`,
+              metadata: buildMeta(startedAt),
+            };
+          }
+          await prisma.task.update({
+            where: { id: existing.id },
+            data: {
+              priority: toPriority,
+              updateBy: toDbId(ctx.userId),
+              updateTime: new Date(),
+            },
+          });
+          const verified = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: existing.id, delFlag: "0" },
+            select: { id: true, taskName: true, priority: true },
+          });
+          if (!verified || verified.priority !== toPriority) {
+            return { success: false, output: "", error: "优先级更新回查失败：数据库结果与预期不一致" };
+          }
+          return {
+            success: true,
+            output: `任务「${verified.taskName}」(ID: ${verified.id}) 优先级已更新为「${toTaskPriorityLabel(verified.priority)}」。`,
+            metadata: buildMeta(startedAt),
+          };
+        }
+
+        case "updateTaskDue": {
+          const { taskId, toDue } = params as { taskId?: string; toDue?: string | null };
+          if (!taskId) {
+            return { success: false, output: "", error: "修改任务截止时间参数无效" };
+          }
+          const hasPermission = await canManageTask(ctx, taskId);
+          if (!hasPermission) {
+            return { success: false, output: "", error: `你没有任务 ${taskId} 的操作权限` };
+          }
+          const existing = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: toDbId(taskId), delFlag: "0" },
+            select: { id: true, taskName: true, dueTime: true },
+          });
+          if (!existing) {
+            return { success: false, output: "", error: `任务 ${taskId} 不存在或已删除` };
+          }
+          const dueAt = toDue ? parseLooseDate(String(toDue)) : null;
+          if (toDue && !dueAt) {
+            return { success: false, output: "", error: `截止时间格式无效：${toDue}` };
+          }
+          await prisma.task.update({
+            where: { id: existing.id },
+            data: {
+              dueTime: dueAt,
+              updateBy: toDbId(ctx.userId),
+              updateTime: new Date(),
+            },
+          });
+          const verified = await prisma.task.findFirst({
+            where: { tenantId: ctx.tenantId, id: existing.id, delFlag: "0" },
+            select: { id: true, taskName: true, dueTime: true },
+          });
+          const verifiedDue = verified?.dueTime ? verified.dueTime.toISOString().slice(0, 10) : null;
+          const expectedDue = dueAt ? dueAt.toISOString().slice(0, 10) : null;
+          if (!verified || verifiedDue !== expectedDue) {
+            return { success: false, output: "", error: "截止时间更新回查失败：数据库结果与预期不一致" };
+          }
+          return {
+            success: true,
+            output: `任务「${verified.taskName}」(ID: ${verified.id}) 截止时间已更新为「${verifiedDue ?? "未设置"}」。`,
             metadata: buildMeta(startedAt),
           };
         }
