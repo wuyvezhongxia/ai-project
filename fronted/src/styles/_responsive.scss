@@ -30,8 +30,8 @@
   }
 
   .project-summary-card {
-    flex-basis: calc((100% - 36px) / 4);
-    width: calc((100% - 36px) / 4);
+    width: clamp(240px, 22vw, 300px);
+    flex-basis: clamp(240px, 22vw, 300px);
   }
 
   .dashboard-grid,
@@ -130,8 +130,8 @@
   }
 
   .project-summary-card {
-    flex-basis: calc((100% - 24px) / 3);
-    width: calc((100% - 24px) / 3);
+    width: clamp(220px, 26vw, 280px);
+    flex-basis: clamp(220px, 26vw, 280px);
   }
 
   .dashboard-header {
@@ -215,8 +215,8 @@
   }
 
   .project-summary-card {
-    flex-basis: 100%;
-    width: 100%;
+    width: clamp(210px, 72vw, 260px);
+    flex-basis: clamp(210px, 72vw, 260px);
   }
 
   .app-shell {

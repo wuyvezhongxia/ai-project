@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Avatar, Button, Card, Dropdown, Empty, Progress, Space, Spin, Tag } from 'antd'
 import type { MenuProps } from 'antd'
-import { AppstoreOutlined, BarChartOutlined, CalendarOutlined, DownOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BarChartOutlined, DownOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import { useOutletContext } from 'react-router-dom'
@@ -13,7 +13,6 @@ import { useAiAssistantStore } from '../../ai/ai-assistant.store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle, getNeutralAvatarStyle } from '../../workspace/utils/avatar'
 import {
-  useProjectGanttQuery,
   useProjectsQuery,
   useProjectStatisticsQuery,
   useProjectTasksQuery,
@@ -104,7 +103,6 @@ function ProjectsPage() {
 
   const { data: activeProjectBoardData = [], isLoading: loadingBoard } = useProjectTasksQuery(activeProject?.id ?? '', 'kanban')
   const { data: activeProjectListData = [], isLoading: loadingList } = useProjectTasksQuery(activeProject?.id ?? '', 'list')
-  const { data: activeGanttRows = [], isLoading: loadingGantt } = useProjectGanttQuery(activeProject?.id ?? '')
   const { data: projectStats } = useProjectStatisticsQuery(activeProject?.id ?? '')
   const activeProjectBoard = activeProjectBoardData as BoardColumn[]
   const activeProjectList = activeProjectListData as WorkTask[]
@@ -394,7 +392,6 @@ function ProjectsPage() {
               {[
                 { label: '列表', value: 'list', icon: <UnorderedListOutlined /> },
                 { label: '看板', value: 'kanban', icon: <AppstoreOutlined /> },
-                { label: '甘特图', value: 'gantt', icon: <CalendarOutlined /> },
                 { label: '统计', value: 'stats', icon: <BarChartOutlined /> },
               ].map((item) => (
                 <button
@@ -499,28 +496,6 @@ function ProjectsPage() {
                     </Avatar>
                     <span>{task.owner}</span>
                   </Space>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {projectView === 'gantt' ? (
-            <div className="gantt-grid">
-              {loadingGantt ? <Spin /> : null}
-              {activeGanttRows.map((row) => (
-                <div key={row.label} className="gantt-row">
-                  <div className="gantt-label">{row.label}</div>
-                  <div className="gantt-track-shell">
-                    <div className="gantt-track">
-                      <div className="gantt-track-line" />
-                      <div
-                        className="gantt-bar"
-                        style={{ marginLeft: `${row.start}%`, width: `${row.width}%`, background: row.color }}
-                        aria-label={`${row.label} 进度 ${row.note}`}
-                      />
-                    </div>
-                    <span className="gantt-progress">{row.note}</span>
-                  </div>
                 </div>
               ))}
             </div>
