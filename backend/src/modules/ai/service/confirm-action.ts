@@ -6,6 +6,8 @@ import { buildMeta } from "../core/ai.meta";
 import { canManageTask } from "../core/ai.permissions";
 import type { AiResponse } from "../core/ai.types";
 
+const normCharStatus = (v: string | null | undefined) => String(v ?? "").trim();
+
 export async function runConfirmActionSwitch(
   action: string,
   params: any,
@@ -114,7 +116,7 @@ export async function runConfirmActionSwitch(
           where: { tenantId: ctx.tenantId, id: existing.id, delFlag: "0" },
           select: { id: true, taskName: true, status: true },
         });
-        if (!verified || verified.status !== toStatus) {
+        if (!verified || normCharStatus(verified.status) !== normCharStatus(toStatus)) {
           return { success: false, output: "", error: "状态更新回查失败：数据库结果与预期不一致" };
         }
         return {
@@ -266,7 +268,7 @@ export async function runConfirmActionSwitch(
             where: { tenantId: ctx.tenantId, id: row.id, delFlag: "0" },
             select: { status: true, taskName: true },
           });
-          if (!verified || verified.status !== toStatus) {
+          if (!verified || normCharStatus(verified.status) !== normCharStatus(toStatus)) {
             return { success: false, output: "", error: `任务 ${idStr} 状态更新失败` };
           }
           updatedNames.push(verified.taskName ?? idStr);

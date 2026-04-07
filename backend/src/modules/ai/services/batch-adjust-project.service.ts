@@ -18,6 +18,8 @@ export type BatchAdjustPlanOk = {
   fromFilter: "all" | BatchAdjustStatus;
   previewLines: string[];
   taskIds: string[];
+  /** 用于确认弹窗展示 */
+  taskNames: string[];
 };
 
 export type BatchAdjustPlan = BatchAdjustPlanOk | { ok: false; output: string };
@@ -143,5 +145,6 @@ export async function planProjectBatchStatusAdjust(
     fromFilter: parsed.fromFilter,
     previewLines,
     taskIds: manageable.map((r) => String(r.id)),
+    taskNames: manageable.map((r) => r.taskName?.trim() || `任务 ${r.id}`),
   };
 }

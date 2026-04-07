@@ -137,6 +137,13 @@ export interface AgentResult {
   }>;
   tokensUsed?: number;
   error?: string;
+  /** 与 AiResponse 对齐：流式接口据此下发 confirmation_required */
+  requiresConfirmation?: boolean;
+  confirmationData?: {
+    action: string;
+    params: any;
+    message: string;
+  };
 }
 
 /**

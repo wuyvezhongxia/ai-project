@@ -296,7 +296,9 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         })
 
         if (result.requiresConfirmation) {
-          // 已经触发onConfirmationRequired回调，等待用户确认
+          if (result.output?.trim()) {
+            updateMessageContent(assistantId, () => result.output)
+          }
           waitingForConfirmation = true
           return
         }
@@ -517,6 +519,27 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         primaryName: taskNames.length > 0 ? `${taskNames.length} 个任务` : '多个任务',
         secondaryName: taskNames.length > 0 ? `目标：${taskNames.join('、')}` : undefined,
         tip: '批量删除后将无法恢复。',
+      }
+    }
+    if (action === 'batchUpdateProjectTaskStatus') {
+      const taskNames = Array.isArray(confirmationParams.taskNames)
+        ? confirmationParams.taskNames.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+        : []
+      const statusLabel =
+        confirmationParams.toStatus != null
+          ? ({ '0': '待开始', '1': '进行中', '2': '已完成', '3': '延期' }[String(confirmationParams.toStatus)] ||
+            String(confirmationParams.toStatus))
+          : '未指定'
+      return {
+        actionLabel: '批量修改状态',
+        scopeLabel: confirmationParams.projectName ? `项目「${confirmationParams.projectName}」` : '当前项目',
+        objectLabel: '任务',
+        primaryName: taskNames.length > 0 ? `${taskNames.length} 个任务` : '多个任务',
+        secondaryName:
+          taskNames.length > 0
+            ? `改为「${statusLabel}」：${taskNames.join('、')}`
+            : `目标状态：${statusLabel}`,
+        tip: '确认后将写入数据库并刷新看板。',
       }
     }
     return {

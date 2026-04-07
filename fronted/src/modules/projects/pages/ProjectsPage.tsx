@@ -9,6 +9,7 @@ import { useOutletContext } from 'react-router-dom'
 import type { AppLayoutOutletContext } from '../../../components/layout/AppLayout'
 import type { BoardColumn, ProjectView, WorkTask } from '../../workspace/types'
 import { useWorkspaceStore } from '../../workspace/store/workspace-store'
+import { useAiAssistantStore } from '../../ai/ai-assistant.store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle, getNeutralAvatarStyle } from '../../workspace/utils/avatar'
 import {
@@ -80,6 +81,8 @@ function ProjectsPage() {
   const { setHeaderToolbar } = useOutletContext<AppLayoutOutletContext>()
   const openProjectModal = useWorkspaceStore((state) => state.openProjectModal)
   const openTaskDetail = useWorkspaceStore((state) => state.openTaskDetail)
+  const defaultProjectId = useAiAssistantStore((state) => state.defaultProjectId)
+  const setDefaultProjectId = useAiAssistantStore((state) => state.setDefaultProjectId)
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
   const [projectFilter, setProjectFilter] = useState('all')
   const [projectView, setProjectView] = useState<ProjectView>('kanban')
@@ -266,6 +269,12 @@ function ProjectsPage() {
     }
   }, [setHeaderToolbar])
 
+  useEffect(() => {
+    if (!resolvedActiveProjectId) return
+    if (defaultProjectId === resolvedActiveProjectId) return
+    setDefaultProjectId(resolvedActiveProjectId)
+  }, [defaultProjectId, resolvedActiveProjectId, setDefaultProjectId])
+
   if (loadingProjects && !projectCards.length) {
     return (
       <section className="page-stack">
@@ -300,7 +309,10 @@ function ProjectsPage() {
                     : 'project-summary-card'
                 }
                 style={cardAccentStyle}
-                onClick={() => setActiveProjectId(project.id)}
+                onClick={() => {
+                  setActiveProjectId(project.id)
+                  setDefaultProjectId(project.id)
+                }}
               >
               <div className="project-card-top">
                 <div className="project-card-heading">

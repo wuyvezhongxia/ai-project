@@ -57,18 +57,34 @@ export class BatchAdjustSkill implements ISkill {
 
     const tail = "回复「确认」执行；「取消」放弃。";
 
+    const confirmParams = {
+      projectId: plan.projectId,
+      projectName: plan.projectName,
+      taskIds: plan.taskIds,
+      taskNames: plan.taskNames,
+      toStatus: plan.toStatus,
+    };
+
     if (typeof context.queuePendingConfirm === "function") {
       context.queuePendingConfirm("batchUpdateProjectTaskStatus", {
-        projectId: plan.projectId,
-        taskIds: plan.taskIds,
-        toStatus: plan.toStatus,
+        projectId: confirmParams.projectId,
+        taskIds: confirmParams.taskIds,
+        toStatus: confirmParams.toStatus,
       });
     }
 
+    const fullMessage = header + tail;
+
     return {
       success: true,
-      output: header + tail,
+      output: fullMessage,
       skillId: this.id,
+      requiresConfirmation: true,
+      confirmationData: {
+        action: "batchUpdateProjectTaskStatus",
+        params: confirmParams,
+        message: fullMessage,
+      },
     };
   }
 }

@@ -104,13 +104,20 @@ async function streamAiChat(payload: {
 
       if (typed.type === 'confirmation_required') {
         if (idleTimer != null) window.clearTimeout(idleTimer)
-        // 触发确认回调并提前返回
+        const confirmText =
+          (typeof typed.message === 'string' && typed.message.trim()
+            ? typed.message
+            : (typed.confirmationData as { message?: string } | undefined)?.message) || '需要确认操作'
+        if (!output && confirmText) {
+          output = confirmText
+          payload.onChunk?.(confirmText, output)
+        }
         payload.onConfirmationRequired?.({
           requiresConfirmation: true,
           confirmationData: typed.confirmationData,
-          message: typed.message || '需要确认操作',
-        });
-        return { output, model, requiresConfirmation: true, confirmationData: typed.confirmationData };
+          message: confirmText,
+        })
+        return { output, model, requiresConfirmation: true, confirmationData: typed.confirmationData }
       }
 
       if (typed.type === 'done') {
