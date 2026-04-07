@@ -108,28 +108,38 @@ const parseInsightFromOutput = (output: string): ApiTaskInsight | null => {
 
   if (!jsonText.trim()) return null
   try {
-    const parsed = JSON.parse(jsonText)
+    const parsed: Record<string, unknown> = JSON.parse(jsonText)
     if (!parsed || typeof parsed !== 'object') return null
     return {
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
-      risks: Array.isArray(parsed.risks) ? parsed.risks.filter((item) => typeof item === 'string') : [],
-      blockers: Array.isArray(parsed.blockers) ? parsed.blockers.filter((item) => typeof item === 'string') : [],
+      risks: Array.isArray(parsed.risks)
+        ? parsed.risks.filter((item: unknown): item is string => typeof item === 'string')
+        : [],
+      blockers: Array.isArray(parsed.blockers)
+        ? parsed.blockers.filter((item: unknown): item is string => typeof item === 'string')
+        : [],
       nextActions: Array.isArray(parsed.nextActions)
         ? parsed.nextActions
-            .filter((item) => item && typeof item === 'object')
-            .map((item) => ({
-              action: typeof item.action === 'string' ? item.action : '',
-              owner: typeof item.owner === 'string' ? item.owner : undefined,
-              due: typeof item.due === 'string' ? item.due : undefined,
-              priority:
-                item.priority === 'high' || item.priority === 'medium' || item.priority === 'low'
-                  ? item.priority
-                  : undefined,
-            }))
-            .filter((item) => item.action)
+            .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
+            .map((item: Record<string, unknown>) => {
+              const action = typeof item.action === 'string' ? item.action : ''
+              const owner = typeof item.owner === 'string' ? item.owner : undefined
+              const due = typeof item.due === 'string' ? item.due : undefined
+              const rawPriority = item.priority
+              const priority: 'high' | 'medium' | 'low' | undefined =
+                rawPriority === 'high' || rawPriority === 'medium' || rawPriority === 'low' ? rawPriority : undefined
+
+              return {
+                action,
+                ...(owner ? { owner } : {}),
+                ...(due ? { due } : {}),
+                ...(priority ? { priority } : {}),
+              }
+            })
+            .filter((item) => Boolean(item.action))
         : [],
       todayChecklist: Array.isArray(parsed.todayChecklist)
-        ? parsed.todayChecklist.filter((item) => typeof item === 'string')
+        ? parsed.todayChecklist.filter((item: unknown): item is string => typeof item === 'string')
         : [],
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
     }

@@ -34,7 +34,7 @@ export class MemoryManager implements IMemoryManager {
     try {
       // 使用现有的ai_record表存储对话历史
       // 这里简化处理，实际项目中可能需要更结构化的存储
-      const inputText = role === 'user' ? content : null;
+      const inputText = role === 'user' ? content : '';
       const outputText = role === 'assistant' ? content : null;
 
       await prisma.aiRecord.create({
@@ -221,7 +221,6 @@ export class MemoryManager implements IMemoryManager {
           data: {
             inputText: preferenceData,
             outputText: null,
-            updateTime: new Date(),
           },
         });
       } else {
@@ -297,7 +296,7 @@ export class MemoryManager implements IMemoryManager {
             metadata: knowledge.metadata,
           }),
           modelId: null,
-          createBy: null, // 系统创建
+          createBy: toDbId('0'), // 系统创建
           createTime: new Date(),
         },
       });
