@@ -1,8 +1,10 @@
+import type { CallbackManagerForToolRun } from '@langchain/core/callbacks/manager';
+import type { ToolRunnableConfig } from '@langchain/core/tools';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { prisma } from '../../../../common/prisma';
 import { toDbId } from '../../../../common/db-values';
-import type { EnhancedContext } from '../../skills/skill.types';
+import { enhancedContextFromToolConfig } from './enhanced-context-from-config';
 
 /**
  * 项目查询工具输入参数
@@ -28,9 +30,17 @@ export class ProjectQueryTool extends StructuredTool {
     super();
   }
 
-  async _call(input: ProjectQueryInput, context: EnhancedContext): Promise<string> {
+  async _call(
+    input: ProjectQueryInput,
+    _runManager?: CallbackManagerForToolRun,
+    parentConfig?: ToolRunnableConfig
+  ): Promise<string> {
+    const ctx = enhancedContextFromToolConfig(parentConfig);
+    if (!ctx) {
+      return '缺少租户或用户上下文，请通过已登录的 AI 对话调用。';
+    }
     const { projectId, projectName, limit } = input;
-    const { tenantId, userId } = context;
+    const { tenantId, userId } = ctx;
 
     // 构建查询条件
     const where: any = {

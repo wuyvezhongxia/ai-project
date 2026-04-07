@@ -1,7 +1,13 @@
-import { getToolRegistry } from '../../../tools/tool.registry';
-import { getLLMManager } from '../../../llms/llm.manager';
-import type { ISkill, SkillParams, SkillContext, SkillResult, EnhancedContext } from '../../skill.types';
+import {
+  getProjectReportHeader,
+  listTasksForProjectReport,
+  listTenantProjectsWithTaskRows,
+  mapAssigneeNickNames,
+  type TaskReportRow,
+} from '../../../services/task-read.service';
+import type { ISkill, SkillParams, SkillContext, SkillResult } from '../../skill.types';
 import { SkillCategory } from '../../skill.types';
+import { buildConcisePortfolioWeeklyMarkdown, wantsAllProjectsWeekly } from './portfolio-weekly.shared';
 
 /**
  * 周报生成Skill（流式工具调用版本）
@@ -25,12 +31,13 @@ export class WeeklyReportStreamingSkill implements ISkill {
   chains = [];
   prompts = [];
 
-  private toolRegistry = getToolRegistry();
-  private llmManager = getLLMManager();
-
   async execute(params: SkillParams, context: SkillContext): Promise<SkillResult> {
     const { input } = params;
     const { tenantId, userId, onToken } = context;
+
+    if (wantsAllProjectsWeekly(input)) {
+      return this.executePortfolioWeekly(params, context);
+    }
 
     // 解析输入，尝试提取项目ID
     const projectId = this.extractProjectId(input) || context.bizId;
@@ -44,18 +51,8 @@ export class WeeklyReportStreamingSkill implements ISkill {
     }
 
     try {
-      // 构建增强上下文（带租户过滤）
-      const enhancedContext: EnhancedContext = {
-        userId,
-        tenantId,
-        sessionId: context.sessionId,
-        tenantFilter: { tenantId },
-      };
-
-      // 1. 使用工具查询数据
-      const { projectInfo, tasks, userMap } = await this.queryDataWithTools(projectId, enhancedContext);
-
-      if (!projectInfo) {
+      const project = await getProjectReportHeader(tenantId, projectId);
+      if (!project) {
         return {
           success: false,
           output: `项目 ${projectId} 不存在或无权限访问。`,
@@ -63,19 +60,57 @@ export class WeeklyReportStreamingSkill implements ISkill {
         };
       }
 
-      // 如果有onToken回调，使用流式LLM生成报告
-      if (onToken) {
-        return await this.generateStreamingReport(projectInfo, tasks, userMap, onToken, enhancedContext);
-      } else {
-        // 否则生成静态报告
-        const report = this.generateStaticReport(projectInfo, tasks, userMap);
-        return {
-          success: true,
-          output: report,
-          skillId: this.id,
-          tokensUsed: 0,
-        };
+      const taskRows = await listTasksForProjectReport(tenantId, projectId);
+      const assigneeIds = [...new Set(taskRows.map((t) => t.assigneeUserId).filter((x): x is bigint => x != null))];
+      const nickMap = await mapAssigneeNickNames(tenantId, assigneeIds);
+      const userMap = new Map<string, string>();
+      for (const [bid, name] of nickMap) {
+        userMap.set(String(bid), name?.trim() ? name : `用户${bid}`);
       }
+
+      const projectInfo = {
+        id: String(project.id),
+        projectName: project.projectName ?? '未命名项目',
+        status: project.status ?? '0',
+        progress: project.progress,
+        startTime: project.startTime ? project.startTime.toISOString().slice(0, 10) : '未设置',
+        endTime: project.endTime ? project.endTime.toISOString().slice(0, 10) : '未设置',
+      };
+
+      const tasks = taskRows.map((t) => ({
+        id: String(t.id),
+        taskName: t.taskName,
+        status: t.status ?? '0',
+        priority: t.priority ?? '1',
+        progress: t.progress,
+        dueTime: t.dueTime,
+        riskLevel: t.riskLevel ?? '0',
+        assigneeUserId: t.assigneeUserId != null ? String(t.assigneeUserId) : undefined,
+      }));
+
+      const week = this.getWeekRange(new Date());
+      const taskInventory = this.formatTaskInventory(taskRows, userMap);
+
+      if (onToken) {
+        return await this.generateStreamingReport(
+          projectInfo,
+          tasks,
+          userMap,
+          taskRows,
+          taskInventory,
+          week,
+          onToken,
+          tenantId,
+        );
+      }
+
+      const report = this.generateStaticReport(projectInfo, tasks, userMap, taskRows, taskInventory, week);
+      return {
+        success: true,
+        output: report,
+        skillId: this.id,
+        tokensUsed: 0,
+      };
     } catch (error) {
       console.error('周报生成（流式工具版）失败:', error);
       return {
@@ -86,58 +121,143 @@ export class WeeklyReportStreamingSkill implements ISkill {
     }
   }
 
-  /**
-   * 使用工具查询数据
-   */
-  private async queryDataWithTools(projectId: string, enhancedContext: EnhancedContext): Promise<{
-    projectInfo: any;
-    tasks: any[];
-    userMap: Map<string, string>;
-  }> {
-    // 1. 查询项目信息
-    const projectTool = this.toolRegistry.getTool('project_query');
-    if (!projectTool) {
-      throw new Error('项目查询工具不可用');
-    }
-    const projectResult = await projectTool.invoke(
-      { projectId, limit: 1 },
-      enhancedContext as any
-    );
-    const projectInfo = this.parseProjectInfo(projectResult as string);
-    if (!projectInfo) {
-      throw new Error('项目不存在或无权限');
-    }
+  /** 租户内全部项目的周报（忽略单项目 bizId；按固定简洁模板生成，不调用长文 LLM） */
+  private async executePortfolioWeekly(_params: SkillParams, context: SkillContext): Promise<SkillResult> {
+    const { tenantId, onToken } = context;
+    const week = this.getWeekRange(new Date());
 
-    // 2. 查询项目任务
-    const taskTool = this.toolRegistry.getTool('task_query');
-    if (!taskTool) {
-      throw new Error('任务查询工具不可用');
-    }
-    const taskResult = await taskTool.invoke(
-      { projectId, limit: 100 },
-      enhancedContext as any
-    );
-    const tasks = this.parseTasks(taskResult as string);
-
-    // 3. 查询用户信息
-    const assigneeIds = tasks.map(t => t.assigneeUserId).filter(Boolean);
-    let userMap = new Map<string, string>();
-    if (assigneeIds.length > 0) {
-      const userTool = this.toolRegistry.getTool('user_query');
-      if (userTool) {
-        // 批量查询用户（简化：只查询第一个）
-        const userResult = await userTool.invoke(
-          { userId: assigneeIds[0], limit: 1 },
-          enhancedContext as any
-        );
-        const userInfo = this.parseUserInfo(userResult as string);
-        if (userInfo) {
-          userMap.set(assigneeIds[0], userInfo.nickName);
-        }
+    try {
+      const bundles = await listTenantProjectsWithTaskRows(tenantId);
+      if (bundles.length === 0) {
+        return {
+          success: true,
+          output: "当前租户下暂无项目，无法生成本周全项目周报。",
+          skillId: this.id,
+          tokensUsed: 0,
+        };
       }
-    }
 
-    return { projectInfo, tasks, userMap };
+      const output = buildConcisePortfolioWeeklyMarkdown(week, bundles);
+      if (onToken) {
+        onToken(output);
+      }
+      return {
+        success: true,
+        output,
+        skillId: this.id,
+        tokensUsed: Math.ceil(output.length / 4),
+      };
+    } catch (error) {
+      console.error("全项目周报生成失败:", error);
+      return {
+        success: false,
+        output: "全项目周报生成失败，请稍后重试。",
+        error: error instanceof Error ? error.message : "未知错误",
+      };
+    }
+  }
+
+  private getWeekRange(now: Date): { startStr: string; endStr: string; label: string } {
+    const d = new Date(now);
+    const day = d.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const fmt = (x: Date) => {
+      const y = x.getFullYear();
+      const m = String(x.getMonth() + 1).padStart(2, '0');
+      const dayN = String(x.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dayN}`;
+    };
+    const startStr = fmt(monday);
+    const endStr = fmt(sunday);
+    return { startStr, endStr, label: `${startStr} 至 ${endStr}` };
+  }
+
+  private taskStatusLabel(s: string | null): string {
+    const m: Record<string, string> = { '0': '待开始', '1': '进行中', '2': '已完成', '3': '延期' };
+    return m[s ?? '0'] ?? '未知';
+  }
+
+  private taskPriorityLabel(p: string | null): string {
+    const m: Record<string, string> = { '0': '紧急', '1': '高', '2': '中', '3': '低' };
+    return m[p ?? '1'] ?? '中';
+  }
+
+  private taskRiskLabel(r: string | null): string {
+    const m: Record<string, string> = { '0': '无', '1': '低', '2': '中', '3': '高' };
+    return m[r ?? '0'] ?? '无';
+  }
+
+  private formatTaskInventory(rows: TaskReportRow[], userMap: Map<string, string>): string {
+    if (rows.length === 0) return '（暂无任务）';
+    return rows
+      .map((t, i) => {
+        const assignee =
+          t.assigneeUserId != null ? userMap.get(String(t.assigneeUserId)) ?? `用户${t.assigneeUserId}` : '未分配';
+        const due = t.dueTime ? t.dueTime.toISOString().slice(0, 10) : '未设置';
+        return `${i + 1}. [ID ${t.id}] ${t.taskName ?? '未命名'}｜${this.taskStatusLabel(t.status)}｜优先级 ${this.taskPriorityLabel(t.priority)}｜进度 ${Number(t.progress ?? 0).toFixed(0)}%｜截止 ${due}｜风险 ${this.taskRiskLabel(t.riskLevel)}｜负责人 ${assignee}`;
+      })
+      .join('\n');
+  }
+
+  private summarizeWeeklyProgressBlock(rows: TaskReportRow[], week: { startStr: string; endStr: string }): string {
+    if (rows.length === 0) return '当前项目下暂无任务，可在任务看板创建后再生成周报。';
+    const ws = new Date(week.startStr + 'T00:00:00');
+    const we = new Date(week.endStr + 'T23:59:59');
+    const dueInWeek = rows.filter((t) => t.dueTime && t.dueTime >= ws && t.dueTime <= we);
+    const delayed = rows.filter((t) => t.status === '3');
+    const inProgress = rows.filter((t) => t.status === '1');
+    const todo = rows.filter((t) => t.status === '0');
+    const done = rows.filter((t) => t.status === '2');
+    const highRisk = rows.filter((t) => ['2', '3'].includes(t.riskLevel ?? '0'));
+    const lines = [
+      `- 任务分布：待开始 ${todo.length}，进行中 ${inProgress.length}，已完成 ${done.length}，已延期 ${delayed.length}。`,
+      `- 截止日落在本周（${week.startStr}～${week.endStr}）的任务：${dueInWeek.length} 条。`,
+      `- 标记为中/高风险：${highRisk.length} 条。`,
+    ];
+    if (dueInWeek.length > 0) {
+      lines.push(
+        '- 本周截止：' +
+          dueInWeek
+            .slice(0, 8)
+            .map((t) => `「${t.taskName ?? t.id}」`)
+            .join('、') +
+          (dueInWeek.length > 8 ? ` 等共 ${dueInWeek.length} 条` : ''),
+      );
+    }
+    return lines.join('\n');
+  }
+
+  private suggestNextWeekBullets(rows: TaskReportRow[]): string[] {
+    const out: string[] = [];
+    const delayed = rows.filter((t) => t.status === '3');
+    const highRisk = rows.filter((t) => ['2', '3'].includes(t.riskLevel ?? '0'));
+    const inProgress = rows.filter((t) => t.status === '1');
+    if (delayed.length) {
+      out.push(`消化 ${delayed.length} 条延期任务：与责任人确认新的目标完成日，并记录阻塞原因。`);
+    }
+    if (highRisk.length) {
+      out.push(`对 ${highRisk.length} 条中高风险任务做逐条复盘，必要时下调范围或增加资源。`);
+    }
+    if (inProgress.length) {
+      out.push(`跟进 ${inProgress.length} 条进行中任务的进度与依赖，避免临近截止才暴露风险。`);
+    }
+    const soon = rows.filter((t) => {
+      if (!t.dueTime || t.status === '2') return false;
+      const days = Math.ceil((t.dueTime.getTime() - Date.now()) / (86400 * 1000));
+      return days >= 0 && days <= 7;
+    });
+    if (soon.length) {
+      out.push(`未来 7 日内到期的任务共 ${soon.length} 条，建议排入下周计划并每日对齐。`);
+    }
+    if (out.length === 0) {
+      out.push('结合里程碑检查下一阶段交付物，提前拆解任务并同步干系人。');
+    }
+    return out.slice(0, 6);
   }
 
   /**
@@ -147,16 +267,15 @@ export class WeeklyReportStreamingSkill implements ISkill {
     projectInfo: any,
     tasks: any[],
     userMap: Map<string, string>,
+    taskRows: TaskReportRow[],
+    taskInventory: string,
+    week: { startStr: string; endStr: string; label: string },
     onToken: (token: string) => void,
-    enhancedContext: EnhancedContext
+    tenantId: string,
   ): Promise<SkillResult> {
-    // 构建提示词
-    const prompt = this.buildReportPrompt(projectInfo, tasks, userMap);
+    const prompt = this.buildReportPrompt(projectInfo, tasks, userMap, taskRows, taskInventory, week);
 
     try {
-      // 获取LLM实例
-      const llm = await this.llmManager.getLLMForTenant(enhancedContext.tenantId);
-
       // 调用流式API
       const messages = [
         { role: 'system' as const, content: '你是一个专业的项目经理，请根据提供的数据生成一份清晰、结构化的周报。' },
@@ -175,8 +294,7 @@ export class WeeklyReportStreamingSkill implements ISkill {
       };
     } catch (error) {
       console.error('流式报告生成失败:', error);
-      // 降级到静态报告
-      const report = this.generateStaticReport(projectInfo, tasks, userMap);
+      const report = this.generateStaticReport(projectInfo, tasks, userMap, taskRows, taskInventory, week);
       return {
         success: true,
         output: report,
@@ -264,77 +382,102 @@ export class WeeklyReportStreamingSkill implements ISkill {
   /**
    * 构建报告提示词
    */
-  private buildReportPrompt(projectInfo: any, tasks: any[], userMap: Map<string, string>): string {
+  private buildReportPrompt(
+    projectInfo: any,
+    tasks: any[],
+    userMap: Map<string, string>,
+    taskRows: TaskReportRow[],
+    taskInventory: string,
+    week: { startStr: string; endStr: string; label: string },
+  ): string {
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(t => t.status === '2').length;
-    const inProgressTasks = tasks.filter(t => t.status === '1').length;
-    const delayedTasks = tasks.filter(t => t.status === '3').length;
-    const highRiskTasks = tasks.filter(t => ['2', '3'].includes(t.riskLevel || '0')).length;
+    const completedTasks = tasks.filter((t) => t.status === '2').length;
+    const inProgressTasks = tasks.filter((t) => t.status === '1').length;
+    const delayedTasks = tasks.filter((t) => t.status === '3').length;
+    const highRiskTasks = tasks.filter((t) => ['2', '3'].includes(t.riskLevel || '0')).length;
+    const progressDigest = this.summarizeWeeklyProgressBlock(taskRows, week);
 
-    return `请根据以下项目数据生成一份周报：
+    return `你是项目经理。请严格根据下方「事实数据」写一份中文周报，禁止编造不存在的任务或数字。
 
-项目名称：${projectInfo.projectName}
-项目状态：${this.getProjectStatus(projectInfo.status)}
-当前进度：${Number(projectInfo.progress || 0).toFixed(0)}%
-开始时间：${projectInfo.startTime || '未设置'}
-计划结束：${projectInfo.endTime || '未设置'}
+【项目】${projectInfo.projectName}（ID ${projectInfo.id}）
+【项目状态】${this.getProjectStatus(projectInfo.status)}
+【整体进度】${Number(projectInfo.progress || 0).toFixed(0)}%
+【计划周期】开始 ${projectInfo.startTime || '未设置'}，结束 ${projectInfo.endTime || '未设置'}
 
-任务统计：
-- 任务总数：${totalTasks}
-- 已完成：${completedTasks} (${totalTasks > 0 ? Math.round(completedTasks / totalTasks * 100) : 0}%)
-- 进行中：${inProgressTasks}
-- 延期：${delayedTasks}
-- 高风险任务：${highRiskTasks}
+【自然周】${week.label}（用于理解「本周」）
 
-请生成一份结构清晰的周报，包含以下部分：
-1. 项目概览
-2. 本周工作进展
-3. 风险与问题
-4. 下周计划建议
+【任务统计】
+- 总数 ${totalTasks}；已完成 ${completedTasks}；进行中 ${inProgressTasks}；延期 ${delayedTasks}；中高风险 ${highRiskTasks}
 
-报告要简洁、实用，使用中文。`;
+【本周进度摘要（由系统根据截止日期与状态生成，请融入正文）】
+${progressDigest}
+
+【本项目任务全量清单】
+${taskInventory}
+
+章节要求（须全部覆盖，小标题可用 ##）：
+1. 项目概览：项目名、状态、整体进度、计划起止
+2. 本周工作进展：结合自然周与上表任务，说明本周应推进 / 已完成的工作（可引用任务 ID 或名称）
+3. 风险与问题：延期任务、中高风险任务、临近截止（7 天内）任务及负责人
+4. 下周计划建议：3～6 条可执行动作，必须与上表真实状态呼应，不要空话
+
+语气简洁、可执行。`;
   }
 
   /**
    * 生成静态报告
    */
-  private generateStaticReport(projectInfo: any, tasks: any[], userMap: Map<string, string>): string {
+  private generateStaticReport(
+    projectInfo: any,
+    tasks: any[],
+    userMap: Map<string, string>,
+    taskRows: TaskReportRow[],
+    taskInventory: string,
+    week: { startStr: string; endStr: string; label: string },
+  ): string {
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(t => t.status === '2').length;
-    const inProgressTasks = tasks.filter(t => t.status === '1').length;
-    const delayedTasks = tasks.filter(t => t.status === '3').length;
-    const highRiskTasks = tasks.filter(t => ['2', '3'].includes(t.riskLevel || '0')).length;
+    const completedTasks = tasks.filter((t) => t.status === '2').length;
+    const inProgressTasks = tasks.filter((t) => t.status === '1').length;
+    const delayedTasks = tasks.filter((t) => t.status === '3').length;
+    const highRiskTasks = tasks.filter((t) => ['2', '3'].includes(t.riskLevel || '0')).length;
+    const nextWeek = this.suggestNextWeekBullets(taskRows);
 
     return `# ${projectInfo.projectName} 周报（流式工具版）
 
 ## 项目概览
+- **项目名称**: ${projectInfo.projectName}（项目 ID: ${projectInfo.id}）
 - **项目状态**: ${this.getProjectStatus(projectInfo.status)}
 - **当前进度**: ${Number(projectInfo.progress || 0).toFixed(0)}%
 - **开始时间**: ${projectInfo.startTime || '未设置'}
 - **计划结束**: ${projectInfo.endTime || '未设置'}
+- **本周范围**: ${week.label}
 
 ## 任务统计
 - **任务总数**: ${totalTasks}
-- **已完成**: ${completedTasks} (${totalTasks > 0 ? Math.round(completedTasks / totalTasks * 100) : 0}%)
+- **已完成**: ${completedTasks} (${totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0}%)
 - **进行中**: ${inProgressTasks}
 - **延期**: ${delayedTasks}
-- **高风险任务**: ${highRiskTasks}
+- **中高风险任务**: ${highRiskTasks}
 
-## 本周重点工作
+## 本周工作进展（数据摘要）
+${this.summarizeWeeklyProgressBlock(taskRows, week)}
+
+## 本项目任务清单
+${taskInventory}
+
+## 高优先级关注（P0/P1）
 ${this.generateWeeklyHighlights(tasks, userMap)}
 
-## 风险与问题
+## 风险与延期
 ${this.generateRiskAnalysis(tasks, userMap)}
 
 ## 下周计划建议
-1. 优先处理高风险和延期任务
-2. 跟进进度滞后任务的责任人
-3. 更新项目里程碑和验收标准
+${nextWeek.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
 ---
 
 *报告生成时间: ${new Date().toLocaleString('zh-CN')}*
-*技能版本: 流式工具调用版*`;
+*技能版本: 流式工具版（数据来自项目全量任务）*`;
   }
 
   /**
@@ -343,121 +486,6 @@ ${this.generateRiskAnalysis(tasks, userMap)}
   private extractProjectId(input: string): string | null {
     const match = input.match(/项目\s*(\d+)/) || input.match(/(\d+)/);
     return match ? match[1] : null;
-  }
-
-  /**
-   * 解析项目信息（简化解析）
-   */
-  private parseProjectInfo(toolOutput: string): any {
-    const lines = toolOutput.split('\n');
-    const project: any = {};
-
-    for (const line of lines) {
-      if (line.includes('项目ID:')) {
-        project.id = line.split(':')[1]?.trim();
-      } else if (line.includes('名称:')) {
-        project.projectName = line.split(':')[1]?.trim();
-      } else if (line.includes('状态:')) {
-        const statusText = line.split(':')[1]?.trim();
-        const statusMap: Record<string, string> = {
-          '进行中': '0',
-          '已完成': '1',
-          '已归档': '2',
-          '已关闭': '3',
-        };
-        project.status = statusMap[statusText] || '0';
-      } else if (line.includes('进度:')) {
-        const progressText = line.split(':')[1]?.trim();
-        const match = progressText?.match(/(\d+)%/);
-        project.progress = match ? match[1] : '0';
-      } else if (line.includes('开始时间:')) {
-        project.startTime = line.split(':')[1]?.trim();
-      } else if (line.includes('结束时间:')) {
-        project.endTime = line.split(':')[1]?.trim();
-      }
-    }
-
-    return project.id ? project : null;
-  }
-
-  /**
-   * 解析任务信息
-   */
-  private parseTasks(toolOutput: string): any[] {
-    const tasks: any[] = [];
-    const taskBlocks = toolOutput.split('\n\n');
-
-    for (const block of taskBlocks) {
-      const lines = block.split('\n');
-      const task: any = {};
-
-      for (const line of lines) {
-        if (line.includes('任务ID:')) {
-          task.id = line.split(':')[1]?.trim();
-        } else if (line.includes('名称:')) {
-          task.taskName = line.split(':')[1]?.trim();
-        } else if (line.includes('状态:')) {
-          const statusText = line.split(':')[1]?.trim();
-          const statusMap: Record<string, string> = {
-            '待开始': '0',
-            '进行中': '1',
-            '已完成': '2',
-            '延期': '3',
-          };
-          task.status = statusMap[statusText] || '0';
-        } else if (line.includes('优先级:')) {
-          const priorityText = line.split(':')[1]?.trim();
-          const priorityMap: Record<string, string> = {
-            '紧急': '0',
-            '高': '1',
-            '中': '2',
-            '低': '3',
-          };
-          task.priority = priorityMap[priorityText] || '1';
-        } else if (line.includes('进度:')) {
-          const progressText = line.split(':')[1]?.trim();
-          const match = progressText?.match(/(\d+)%/);
-          task.progress = match ? match[1] : '0';
-        } else if (line.includes('风险等级:')) {
-          const riskText = line.split(':')[1]?.trim();
-          const riskMap: Record<string, string> = {
-            '无风险': '0',
-            '低风险': '1',
-            '中风险': '2',
-            '高风险': '3',
-          };
-          task.riskLevel = riskMap[riskText] || '0';
-        } else if (line.includes('负责人ID:')) {
-          task.assigneeUserId = line.split(':')[1]?.trim();
-        }
-      }
-
-      if (task.id) {
-        tasks.push(task);
-      }
-    }
-
-    return tasks;
-  }
-
-  /**
-   * 解析用户信息
-   */
-  private parseUserInfo(toolOutput: string): any {
-    const lines = toolOutput.split('\n');
-    const user: any = {};
-
-    for (const line of lines) {
-      if (line.includes('用户ID:')) {
-        user.userId = line.split(':')[1]?.trim();
-      } else if (line.includes('昵称:')) {
-        user.nickName = line.split(':')[1]?.trim();
-      } else if (line.includes('部门:')) {
-        user.deptName = line.split(':')[1]?.trim();
-      }
-    }
-
-    return user.userId ? user : null;
   }
 
   /**

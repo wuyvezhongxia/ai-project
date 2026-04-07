@@ -1,8 +1,10 @@
+import type { CallbackManagerForToolRun } from '@langchain/core/callbacks/manager';
+import type { ToolRunnableConfig } from '@langchain/core/tools';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { prisma } from '../../../../common/prisma';
 import { toDbId } from '../../../../common/db-values';
-import type { EnhancedContext } from '../../skills/skill.types';
+import { enhancedContextFromToolConfig } from './enhanced-context-from-config';
 
 /**
  * 任务查询工具输入参数
@@ -18,6 +20,23 @@ const taskQuerySchema = z.object({
 
 type TaskQueryInput = z.infer<typeof taskQuerySchema>;
 
+async function userCanAccessProject(
+  tenantId: string,
+  userId: string,
+  projectId: bigint,
+): Promise<boolean> {
+  const member = await prisma.projectMember.findFirst({
+    where: { tenantId, userId: toDbId(userId), projectId, delFlag: "0" },
+    select: { id: true },
+  });
+  if (member) return true;
+  const owned = await prisma.project.findFirst({
+    where: { tenantId, id: projectId, ownerUserId: toDbId(userId), delFlag: "0" },
+    select: { id: true },
+  });
+  return Boolean(owned);
+}
+
 /**
  * 任务查询工具
  * 用于查询任务信息，支持多种筛选条件
@@ -31,9 +50,17 @@ export class TaskQueryTool extends StructuredTool {
     super();
   }
 
-  async _call(input: TaskQueryInput, context: EnhancedContext): Promise<string> {
+  async _call(
+    input: TaskQueryInput,
+    _runManager?: CallbackManagerForToolRun,
+    parentConfig?: ToolRunnableConfig
+  ): Promise<string> {
+    const ctx = enhancedContextFromToolConfig(parentConfig);
+    if (!ctx) {
+      return '缺少租户或用户上下文，请通过已登录的 AI 对话调用。';
+    }
     const { taskId, taskName, projectId, assigneeUserId, status, limit } = input;
-    const { tenantId, userId } = context;
+    const { tenantId, userId } = ctx;
 
     // 构建查询条件
     const where: any = {
@@ -63,36 +90,51 @@ export class TaskQueryTool extends StructuredTool {
       where.status = status;
     }
 
-    // 权限检查：用户必须是任务负责人、创建者或协作者
-    // 这里简化处理，实际项目中可能需要更复杂的权限验证
-    const userTasks = await prisma.task.findMany({
-      where: {
-        tenantId,
-        OR: [
-          { assigneeUserId: toDbId(userId) },
-          { creatorUserId: toDbId(userId) },
-          { createBy: toDbId(userId) },
-        ],
-        delFlag: '0',
-      },
-      select: { id: true },
-      take: 1000,
-    });
+    const projectScoped = Boolean(projectId);
+    if (projectScoped) {
+      const pid = toDbId(projectId!);
+      const allowed = await userCanAccessProject(tenantId, userId, pid);
+      if (!allowed) {
+        return `您没有权限查看项目 ${projectId} 下的任务。`;
+      }
+      if (taskId) {
+        const tid = toDbId(taskId);
+        const trow = await prisma.task.findFirst({
+          where: { tenantId, id: tid, delFlag: "0" },
+          select: { projectId: true },
+        });
+        if (!trow || trow.projectId !== pid) {
+          return `任务 ${taskId} 不属于项目 ${projectId}，或不存在。`;
+        }
+      }
+    } else {
+      const userTasks = await prisma.task.findMany({
+        where: {
+          tenantId,
+          OR: [
+            { assigneeUserId: toDbId(userId) },
+            { creatorUserId: toDbId(userId) },
+            { createBy: toDbId(userId) },
+          ],
+          delFlag: "0",
+        },
+        select: { id: true },
+        take: 1000,
+      });
 
-    const accessibleTaskIds = userTasks.map(t => t.id);
+      const accessibleTaskIds = userTasks.map((t) => t.id);
 
-    if (accessibleTaskIds.length === 0) {
-      return '您没有可访问的任务。';
-    }
+      if (accessibleTaskIds.length === 0) {
+        return "您没有可访问的任务。";
+      }
 
-    // 如果指定了taskId，检查是否有权限访问
-    if (taskId && !accessibleTaskIds.includes(toDbId(taskId))) {
-      return `您没有权限访问任务 ${taskId}。`;
-    }
+      if (taskId && !accessibleTaskIds.includes(toDbId(taskId))) {
+        return `您没有权限访问任务 ${taskId}。`;
+      }
 
-    // 如果没有指定taskId，只返回用户可访问的任务
-    if (!taskId) {
-      where.id = { in: accessibleTaskIds };
+      if (!taskId) {
+        where.id = { in: accessibleTaskIds };
+      }
     }
 
     // 查询任务

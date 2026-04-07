@@ -314,7 +314,8 @@ export const workspaceApi = {
       body: JSON.stringify(payload),
     }),
 
-  aiRiskAnalysis: (payload: { bizId: string; inputText: string }) =>
+  /** 项目维度批量状态调整预览（bizId=项目ID；不落库，执行请在对话中确认） */
+  aiBatchAdjustPreview: (payload: { bizId: string; inputText: string }) =>
     apiRequest<{
       success: boolean;
       output: string;
@@ -331,16 +332,6 @@ export const workspaceApi = {
       insight?: ApiTaskInsight;
       recordId: string;
     }>('/api/ai/task-insight', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  aiProjectProgress: (payload: { bizId: string; inputText: string }) =>
-    apiRequest<{
-      success: boolean;
-      output: string;
-      recordId: string;
-    }>('/api/ai/project-progress', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

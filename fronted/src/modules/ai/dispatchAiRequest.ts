@@ -141,7 +141,7 @@ export async function dispatchAiRequest(p: DispatchAiParams): Promise<AiResult> 
   switch (intent) {
     case 'weekly': {
       return streamAiChat({
-        inputText: `请以多轮对话方式帮我完成周报分析，并给出下一步问题：${inputText}`,
+        inputText,
         bizId: bizFromContext,
         onChunk: p.onStreamChunk,
         onConfirmationRequired: p.onConfirmationRequired,
@@ -149,24 +149,15 @@ export async function dispatchAiRequest(p: DispatchAiParams): Promise<AiResult> 
     }
     case 'breakdown': {
       return streamAiChat({
-        inputText: `请把任务拆解为可执行步骤，并标注风险点与下一步：${inputText}`,
+        inputText,
         bizId: bizFromContext,
         onChunk: p.onStreamChunk,
         onConfirmationRequired: p.onConfirmationRequired,
       })
     }
-    case 'risk': {
-      const taskHint = p.selectedTaskId && /^\d+$/.test(p.selectedTaskId) ? `（任务ID: ${p.selectedTaskId}）` : ''
+    case 'batchAdjust': {
       return streamAiChat({
-        inputText: `请做延期风险分析${taskHint}，并给出可执行预警建议：${inputText}`,
-        bizId: bizFromContext,
-        onChunk: p.onStreamChunk,
-        onConfirmationRequired: p.onConfirmationRequired,
-      })
-    }
-    case 'progress': {
-      return streamAiChat({
-        inputText: `请总结项目进度、风险和下周建议，并以对话方式继续追问我关键缺失信息：${inputText}`,
+        inputText,
         bizId: bizFromContext,
         onChunk: p.onStreamChunk,
         onConfirmationRequired: p.onConfirmationRequired,

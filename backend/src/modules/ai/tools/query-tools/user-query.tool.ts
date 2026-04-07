@@ -1,8 +1,10 @@
+import type { CallbackManagerForToolRun } from '@langchain/core/callbacks/manager';
+import type { ToolRunnableConfig } from '@langchain/core/tools';
 import { StructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { prisma } from '../../../../common/prisma';
 import { toDbId } from '../../../../common/db-values';
-import type { EnhancedContext } from '../../skills/skill.types';
+import { enhancedContextFromToolConfig } from './enhanced-context-from-config';
 
 /**
  * 用户查询工具输入参数
@@ -29,9 +31,17 @@ export class UserQueryTool extends StructuredTool {
     super();
   }
 
-  async _call(input: UserQueryInput, context: EnhancedContext): Promise<string> {
+  async _call(
+    input: UserQueryInput,
+    _runManager?: CallbackManagerForToolRun,
+    parentConfig?: ToolRunnableConfig
+  ): Promise<string> {
+    const ctx = enhancedContextFromToolConfig(parentConfig);
+    if (!ctx) {
+      return '缺少租户或用户上下文，请通过已登录的 AI 对话调用。';
+    }
     const { userId, userName, deptId, limit } = input;
-    const { tenantId } = context;
+    const { tenantId } = ctx;
 
     // 构建查询条件
     const where: any = {
@@ -73,7 +83,7 @@ export class UserQueryTool extends StructuredTool {
     }
 
     // 查询部门信息
-    const deptIds = users.map(u => u.deptId).filter(Boolean);
+    const deptIds = users.map(u => u.deptId).filter((id): id is bigint => id != null);
     let departments: Map<bigint, string> = new Map();
 
     if (deptIds.length > 0) {

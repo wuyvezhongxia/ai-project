@@ -1,7 +1,7 @@
 import { Router } from "express";
 
-import { asyncHandler } from "../../common/http";
-import { aiChat, aiChatStream, aiHistory, delayAnalysis, projectProgress, taskBreakdown, taskInsight, weeklyReport, aiConfirm } from "./ai.controller";
+import { asyncHandler } from "../../../common/http";
+import { aiChat, aiChatStream, aiHistory, delayAnalysis, taskBreakdown, taskInsight, weeklyReport, aiConfirm } from "../ai.controller";
 
 const router = Router();
 
@@ -11,7 +11,6 @@ router.get("/history", asyncHandler(aiHistory));
 router.post("/weekly-report", asyncHandler(weeklyReport));
 router.post("/task-breakdown", asyncHandler(taskBreakdown));
 router.post("/delay-analysis", asyncHandler(delayAnalysis));
-router.post("/project-progress", asyncHandler(projectProgress));
 router.post("/task-insight", asyncHandler(taskInsight));
 router.post("/confirm", asyncHandler(aiConfirm));
 

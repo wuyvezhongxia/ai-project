@@ -1,7 +1,30 @@
-import { SkillCategory, type ISkill, type SkillDiscoveryContext } from "./skill.types";
+import { SkillCategory, type ISkill } from "./skill.types";
+
+const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+
+export function assertSkillMetadata(skill: ISkill): void {
+  const skillId = skill.id?.trim();
+  if (!skillId) {
+    throw new Error("[SkillRegistry] Skill.id 不能为空");
+  }
+  if (!ID_PATTERN.test(skillId)) {
+    console.warn(
+      `[SkillRegistry] Skill id 建议使用小写字母开头、仅含小写/数字/连字符: "${skillId}"（结构化路由 Prompt 依赖稳定 id）`,
+    );
+  }
+  if (!skill.name?.trim()) {
+    throw new Error(`[SkillRegistry] Skill「${skillId}」name 不能为空`);
+  }
+  const desc = skill.description?.trim() ?? "";
+  if (desc.length < 4) {
+    throw new Error(
+      `[SkillRegistry] Skill「${skillId}」description 过短（至少 4 字），否则结构化路由难以正确选中该技能`,
+    );
+  }
+}
 
 /**
- * Skill注册与发现管理器
+ * Skill 注册与启用状态管理。具名 Skill 的选用由结构化路由 LLM（skill_id）完成，不在此做意图匹配。
  */
 export class SkillRegistry {
   private skills: Map<string, ISkill> = new Map();
@@ -11,7 +34,8 @@ export class SkillRegistry {
    * 注册Skill
    */
   register(skill: ISkill, options?: { enabled?: boolean }): void {
-    const skillId = skill.id;
+    assertSkillMetadata(skill);
+    const skillId = skill.id.trim();
 
     if (this.skills.has(skillId)) {
       console.warn(`Skill已存在，将被覆盖: ${skillId}`);
@@ -70,99 +94,6 @@ export class SkillRegistry {
   }
 
   /**
-   * 根据意图发现Skill（关键词匹配）
-   */
-  discoverSkill(intent: string, context: SkillDiscoveryContext): ISkill | null {
-    // 只返回启用的Skill
-    const enabledSkillIds = Array.from(this.enabledSkills);
-    const enabledSkills = enabledSkillIds
-      .map(id => this.skills.get(id)!)
-      .filter(Boolean);
-
-    // 1. 关键词匹配
-    const keywordMatch = this.matchByKeywords(intent, enabledSkills);
-    if (keywordMatch) {
-      // 检查用户是否有权限
-      if (this.hasPermission(keywordMatch, context.userId, context.tenantId)) {
-        return keywordMatch;
-      }
-    }
-
-    // 2. 无匹配，返回null（将由通用代理处理）
-    return null;
-  }
-
-  /**
-   * 关键词匹配
-   */
-  private matchByKeywords(intent: string, skills: ISkill[]): ISkill | null {
-    const keywords: Record<string, string[]> = {
-      // 周报相关
-      "周报": ["weekly-report", "report", "summary"],
-      "工作报告": ["weekly-report", "report"],
-      "工作总结": ["weekly-report", "summary"],
-      "工作周报": ["weekly-report"],
-      "weekly": ["weekly-report"],
-      "report": ["weekly-report"],
-      "summary": ["weekly-report"],
-
-      // 风险相关
-      "风险": ["risk-analysis", "risk"],
-      "延期": ["risk-analysis", "delay"],
-      "危险": ["risk-analysis"],
-      "风险评估": ["risk-analysis"],
-      "风险分析": ["risk-analysis"],
-
-      // 任务拆解
-      "拆解": ["task-breakdown", "breakdown"],
-      "分解": ["task-breakdown"],
-      "子任务": ["task-breakdown", "subtask"],
-      "breakdown": ["task-breakdown"],
-      "拆任务": ["task-breakdown"],
-
-      // 负载分析（暂未实现）
-      "负载": ["workload-analysis", "workload"],
-      "工作量": ["workload-analysis"],
-      "团队": ["workload-analysis", "team"],
-
-      // 项目进度
-      "进度": ["project-progress", "progress"],
-      "项目进度": ["project-progress"],
-      "项目": ["project-progress", "project"],
-      "健康度": ["project-progress"],
-      "progress": ["project-progress"],
-
-      // 任务洞察（暂未实现，映射到通用聊天）
-      "洞察": ["general-chat"],
-      "insight": ["general-chat"],
-      "任务洞察": ["general-chat"],
-    };
-
-    // 查找匹配的关键词
-    for (const [keyword, skillIds] of Object.entries(keywords)) {
-      if (intent.includes(keyword)) {
-        for (const skillId of skillIds) {
-          const skill = skills.find(s => s.id === skillId);
-          if (skill) {
-            return skill;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * 权限检查（简化版，可根据实际需求扩展）
-   */
-  private hasPermission(skill: ISkill, userId: string, tenantId: string): boolean {
-    // 这里可以根据用户角色、部门、租户配置等进行验证
-    // 目前返回true，实际项目中需要实现具体的权限逻辑
-    return true;
-  }
-
-  /**
    * 获取所有Skill
    */
   getAllSkills(): ISkill[] {
@@ -205,6 +136,15 @@ export class SkillRegistry {
    */
   isSkillEnabled(skillId: string): boolean {
     return this.enabledSkills.has(skillId);
+  }
+
+  /**
+   * 启动自检：所有已注册 Skill 元数据（注册时已校验，此处便于热重载后再次检查）
+   */
+  assertAllRegisteredSkillsMetadata(): void {
+    for (const s of this.skills.values()) {
+      assertSkillMetadata(s);
+    }
   }
 
   /**

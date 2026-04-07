@@ -1,5 +1,6 @@
 import { getToolRegistry } from '../../../tools/tool.registry';
 import type { ISkill, SkillParams, SkillContext, SkillResult, EnhancedContext } from '../../skill.types';
+import { toolRunnableConfigFromEnhancedContext } from '../../../tools/query-tools/enhanced-context-from-config';
 import { SkillCategory } from '../../skill.types';
 
 /**
@@ -62,7 +63,7 @@ export class WeeklyReportToolsSkill implements ISkill {
 
       const projectResult = await projectTool.invoke(
         { projectId, limit: 1 },
-        enhancedContext
+        toolRunnableConfigFromEnhancedContext(enhancedContext)
       );
 
       // 解析工具返回的文本（简化处理）
@@ -87,7 +88,7 @@ export class WeeklyReportToolsSkill implements ISkill {
 
       const taskResult = await taskTool.invoke(
         { projectId, limit: 100 },
-        enhancedContext
+        toolRunnableConfigFromEnhancedContext(enhancedContext)
       );
 
       // 解析任务数据
@@ -103,7 +104,7 @@ export class WeeklyReportToolsSkill implements ISkill {
           // 简化：只查询第一个用户作为示例
           const userResult = await userTool.invoke(
             { userId: assigneeIds[0], limit: 1 },
-            enhancedContext
+            toolRunnableConfigFromEnhancedContext(enhancedContext)
           );
           const userInfo = this.parseUserInfo(userResult as string);
           if (userInfo) {

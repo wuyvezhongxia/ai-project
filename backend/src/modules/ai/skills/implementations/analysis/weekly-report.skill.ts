@@ -1,9 +1,13 @@
-import { toDbId } from '../../../../../common/db-values';
-import { prisma } from '../../../../../common/prisma';
-import { getToolRegistry } from '../../../tools/tool.registry';
+import {
+  getProjectReportHeader,
+  listTasksForProjectReport,
+  listTenantProjectsWithTaskRows,
+  mapAssigneeNickNames,
+  type TaskReportRow,
+} from '../../../services/task-read.service';
 import type { ISkill, SkillParams, SkillContext, SkillResult } from '../../skill.types';
 import { SkillCategory } from '../../skill.types';
-import type { EnhancedContext } from '../../skill.types';
+import { buildConcisePortfolioWeeklyMarkdown, getIsoWeekRange, wantsAllProjectsWeekly } from './portfolio-weekly.shared';
 
 /**
  * 周报生成Skill
@@ -26,6 +30,10 @@ export class WeeklyReportSkill implements ISkill {
     const { input } = params;
     const { tenantId, userId } = context;
 
+    if (wantsAllProjectsWeekly(input)) {
+      return this.executePortfolioWeekly(params, context);
+    }
+
     // 解析输入，尝试提取项目ID
     const projectId = this.extractProjectId(input) || context.bizId;
 
@@ -38,24 +46,7 @@ export class WeeklyReportSkill implements ISkill {
     }
 
     try {
-      // 查询项目信息
-      const project = await prisma.project.findFirst({
-        where: {
-          tenantId,
-          id: toDbId(projectId),
-          delFlag: '0',
-        },
-        select: {
-          id: true,
-          projectName: true,
-          status: true,
-          progress: true,
-          startTime: true,
-          endTime: true,
-          ownerUserId: true,
-        },
-      });
-
+      const project = await getProjectReportHeader(tenantId, projectId);
       if (!project) {
         return {
           success: false,
@@ -64,39 +55,9 @@ export class WeeklyReportSkill implements ISkill {
         };
       }
 
-      // 查询项目任务
-      const tasks = await prisma.task.findMany({
-        where: {
-          tenantId,
-          projectId: toDbId(projectId),
-          delFlag: '0',
-        },
-        select: {
-          id: true,
-          taskName: true,
-          status: true,
-          priority: true,
-          progress: true,
-          dueTime: true,
-          riskLevel: true,
-          assigneeUserId: true,
-        },
-      });
-
-      // 查询用户信息
-      const userIds = [...new Set(tasks.map(t => t.assigneeUserId).filter(Boolean))];
-      const users = userIds.length > 0 ? await prisma.user.findMany({
-        where: {
-          userId: { in: userIds },
-          delFlag: '0',
-        },
-        select: {
-          userId: true,
-          nickName: true,
-        },
-      }) : [];
-
-      const userMap = new Map(users.map(u => [u.userId, u.nickName]));
+      const tasks = await listTasksForProjectReport(tenantId, projectId);
+      const userIds = [...new Set(tasks.map((t) => t.assigneeUserId).filter((id): id is bigint => id != null))];
+      const userMap = await mapAssigneeNickNames(tenantId, userIds);
 
       // 统计数据
       const totalTasks = tasks.length;
@@ -127,10 +88,23 @@ export class WeeklyReportSkill implements ISkill {
         '3': '高风险',
       };
 
-      // 生成周报
+      const taskLines =
+        tasks.length === 0
+          ? '（暂无任务）'
+          : tasks
+              .map((t, i) => {
+                const assignee = t.assigneeUserId ? userMap.get(t.assigneeUserId) || `用户${t.assigneeUserId}` : '未分配';
+                const due = t.dueTime ? t.dueTime.toISOString().slice(0, 10) : '未设置';
+                return `${i + 1}. [ID ${t.id}] ${t.taskName ?? '未命名'}｜${statusMap[t.status || '0'] || '未知'}｜${priorityMap[t.priority || '1'] || '中'}｜进度 ${Number(t.progress || 0).toFixed(0)}%｜截止 ${due}｜${riskMap[t.riskLevel || '0'] || '无风险'}｜负责人 ${assignee}`;
+              })
+              .join('\n');
+
+      const nextWeek = this.buildNextWeekSuggestions(tasks);
+
       const report = `# ${project.projectName} 周报
 
 ## 项目概览
+- **项目名称**: ${project.projectName ?? '未命名'}（项目 ID: ${project.id}）
 - **项目状态**: ${this.getProjectStatus(project.status)}
 - **当前进度**: ${Number(project.progress || 0).toFixed(0)}%
 - **开始时间**: ${project.startTime ? project.startTime.toISOString().slice(0, 10) : '未设置'}
@@ -143,16 +117,17 @@ export class WeeklyReportSkill implements ISkill {
 - **延期**: ${delayedTasks}
 - **高风险任务**: ${highRiskTasks}
 
-## 本周重点工作
+## 本项目任务清单
+${taskLines}
+
+## 本周重点工作（高优先级）
 ${this.generateWeeklyHighlights(tasks, userMap)}
 
 ## 风险与问题
 ${this.generateRiskAnalysis(tasks, userMap)}
 
 ## 下周计划建议
-1. 优先处理高风险和延期任务
-2. 跟进进度滞后任务的责任人
-3. 更新项目里程碑和验收标准
+${nextWeek.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
 ---
 
@@ -172,6 +147,66 @@ ${this.generateRiskAnalysis(tasks, userMap)}
         error: error instanceof Error ? error.message : '未知错误',
       };
     }
+  }
+
+  private async executePortfolioWeekly(_params: SkillParams, context: SkillContext): Promise<SkillResult> {
+    const { tenantId } = context;
+    try {
+      const bundles = await listTenantProjectsWithTaskRows(tenantId);
+      if (bundles.length === 0) {
+        return {
+          success: true,
+          output: "当前租户下暂无项目，无法生成本周全项目周报。",
+          skillId: this.id,
+          tokensUsed: 0,
+        };
+      }
+
+      const week = getIsoWeekRange(new Date());
+      const md = buildConcisePortfolioWeeklyMarkdown(week, bundles);
+
+      return {
+        success: true,
+        output: md,
+        skillId: this.id,
+        tokensUsed: 0,
+      };
+    } catch (error) {
+      console.error("全项目周报生成失败:", error);
+      return {
+        success: false,
+        output: "全项目周报生成失败，请稍后重试。",
+        error: error instanceof Error ? error.message : "未知错误",
+      };
+    }
+  }
+
+  private buildNextWeekSuggestions(tasks: TaskReportRow[]): string[] {
+    const out: string[] = [];
+    const delayed = tasks.filter((t) => t.status === '3');
+    const highRisk = tasks.filter((t) => ['2', '3'].includes(t.riskLevel ?? '0'));
+    const inProgress = tasks.filter((t) => t.status === '1');
+    if (delayed.length) {
+      out.push(`优先处理 ${delayed.length} 条延期任务，与责任人确认新的目标日与阻塞原因。`);
+    }
+    if (highRisk.length) {
+      out.push(`对 ${highRisk.length} 条中高风险任务做复盘，必要时调整范围或资源。`);
+    }
+    if (inProgress.length) {
+      out.push(`跟进 ${inProgress.length} 条进行中任务，提前暴露依赖与进度偏差。`);
+    }
+    const soon = tasks.filter((t) => {
+      if (!t.dueTime || t.status === '2') return false;
+      const days = Math.ceil((t.dueTime.getTime() - Date.now()) / (86400 * 1000));
+      return days >= 0 && days <= 7;
+    });
+    if (soon.length) {
+      out.push(`未来 7 日内到期任务 ${soon.length} 条，建议排入下周计划并每日对齐。`);
+    }
+    if (out.length === 0) {
+      out.push('结合里程碑安排下周迭代目标，并同步关键干系人。');
+    }
+    return out.slice(0, 6);
   }
 
   /**

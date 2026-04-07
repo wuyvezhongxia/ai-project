@@ -483,7 +483,7 @@ export class MemoryManager implements IMemoryManager {
    */
   private getDefaultUserPreferences(): UserPreference {
     return {
-      preferredSkills: ['weekly-report', 'risk-analysis', 'task-breakdown'],
+      preferredSkills: ['weekly-report', 'batch-adjust', 'task-breakdown'],
       preferredModels: ['deepseek'],
       conversationStyle: 'casual',
       notificationPreferences: {
@@ -505,8 +505,8 @@ export class MemoryManager implements IMemoryManager {
   private getSkillNameFromId(skillId: string): string {
     const map: Record<string, string> = {
       'weekly-report': '周报生成',
-      'risk-analysis': '风险分析',
-      'task-breakdown': '任务拆解',
+      'batch-adjust': '批量调整',
+      'task-breakdown': '项目分析',
     };
     return map[skillId] || skillId;
   }

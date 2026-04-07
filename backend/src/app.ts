@@ -6,7 +6,7 @@ import pino from "pino";
 import { asyncHandler } from "./common/http";
 import { errorHandler, notFoundMiddleware } from "./common/middleware";
 import { authRouter } from "./modules/auth/auth.routes";
-import { aiRouter } from "./modules/ai/ai.routes";
+import { aiRouter } from "./modules/ai/core/ai.routes";
 import { orgRouter } from "./modules/org/org.routes";
 import {
   attachmentsRouter,

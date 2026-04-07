@@ -61,6 +61,14 @@ const envSchema = z.object({
 
   /** AI请求超时时间（毫秒） */
   AI_REQUEST_TIMEOUT: z.coerce.number().positive().default(30000),
+
+  /**
+   * 为 false 时回退到「正则 + 显式链 + 关键词 Skill」；为 true（默认）且配置了 DEEPSEEK_API_KEY 时用结构化 JSON 路由（无用户侧正则门闸）。
+   */
+  AI_STRUCTURED_ROUTING_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== "false"),
 });
 
 // 3. 校验环境变量并导出为强类型对象

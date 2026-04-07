@@ -229,27 +229,6 @@ export class ToolRegistry {
     return { total, enabled, disabled, byCategory };
   }
 
-  /**
-   * 根据描述关键词查找工具
-   */
-  findToolsByKeywords(keywords: string[]): string[] {
-    const matchingTools: string[] = [];
-
-    for (const [name, item] of this.tools.entries()) {
-      if (!item.enabled) continue;
-
-      const searchText = `${name} ${item.description}`.toLowerCase();
-      const matches = keywords.some(keyword =>
-        searchText.includes(keyword.toLowerCase())
-      );
-
-      if (matches) {
-        matchingTools.push(name);
-      }
-    }
-
-    return matchingTools;
-  }
 }
 
 // 单例实例

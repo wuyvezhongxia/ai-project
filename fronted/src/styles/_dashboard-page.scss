@@ -425,8 +425,6 @@
   --ai-break-fg: #2f7b60;
   --ai-risk-bg: #fff1e8;
   --ai-risk-fg: #a05a35;
-  --ai-progress-bg: #f0ecff;
-  --ai-progress-fg: #5d4fa6;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -524,11 +522,6 @@
 .dashboard-ai-preview-skill--risk {
   background: var(--ai-risk-bg);
   color: var(--ai-risk-fg);
-}
-
-.dashboard-ai-preview-skill--progress {
-  background: var(--ai-progress-bg);
-  color: var(--ai-progress-fg);
 }
 
 .dashboard-ai-preview-skill:hover {

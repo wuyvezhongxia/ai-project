@@ -1,20 +1,42 @@
-import { toDbId } from '../../../../../common/db-values';
-import { prisma } from '../../../../../common/prisma';
-import type { ISkill, SkillParams, SkillContext, SkillResult } from '../../skill.types';
-import { SkillCategory } from '../../skill.types';
+import { toDbId } from "../../../../../common/db-values";
+import { prisma } from "../../../../../common/prisma";
+import {
+  isNumericId,
+  toTaskPriorityLabel,
+  toTaskStatus,
+} from "../../../core/ai.domain-format";
+import {
+  getProjectReportHeader,
+  mapAssigneeNickNames,
+} from "../../../services/task-read.service";
+import type { ISkill, SkillParams, SkillContext, SkillResult } from "../../skill.types";
+import { SkillCategory } from "../../skill.types";
+
+type TaskRow = {
+  id: bigint;
+  taskName: string | null;
+  taskDesc: string | null;
+  status: string | null;
+  progress: unknown;
+  assigneeUserId: bigint | null;
+  dueTime: Date | null;
+  priority: string | null;
+  riskLevel: string | null;
+};
 
 /**
- * 任务拆解Skill
+ * 项目分析：基于关联项目与任务清单生成数据驱动报告（非模板化子任务拆解）
  */
 export class TaskBreakdownSkill implements ISkill {
-  id = 'task-breakdown';
-  name = '任务拆解';
-  description = '将复杂任务智能分解为子任务';
-  icon = '📋';
+  id = "task-breakdown";
+  name = "项目分析";
+  description =
+    "根据关联项目的任务列表生成项目概览、状态分布、延期与临期任务、负责人负载与改进建议";
+  icon = "📋";
   category = SkillCategory.GENERATION;
   requiresConfirmation = false;
   supportsStreaming = true;
-  availableModels = ['deepseek', 'doubao'];
+  availableModels = ["deepseek", "doubao"];
 
   tools = [];
   chains = [];
@@ -22,339 +44,240 @@ export class TaskBreakdownSkill implements ISkill {
 
   async execute(params: SkillParams, context: SkillContext): Promise<SkillResult> {
     const { input } = params;
-    const { tenantId, userId } = context;
-
-    // 解析输入，尝试提取任务ID或任务描述
-    const taskId = this.extractTaskId(input);
-    const taskDescription = this.extractTaskDescription(input);
+    const { tenantId } = context;
 
     try {
-      let taskInfo: any = null;
-      let projectId: bigint | null = null;
-
-      if (taskId) {
-        // 查询现有任务
-        taskInfo = await prisma.task.findFirst({
-          where: {
-            tenantId,
-            id: toDbId(taskId),
-            delFlag: '0',
-          },
-          select: {
-            id: true,
-            taskName: true,
-            taskDesc: true,
-            projectId: true,
-            assigneeUserId: true,
-            dueTime: true,
-            priority: true,
-          },
-        });
-
-        if (taskInfo) {
-          projectId = taskInfo.projectId;
-        }
+      const resolved = await this.resolveProjectId(tenantId, context, input);
+      if (!resolved.projectId) {
+        return {
+          success: true,
+          output: resolved.hint ?? "无法确定要分析的项目，请先选择「关联项目」或在说明中写明项目。",
+          skillId: this.id,
+          tokensUsed: 0,
+        };
       }
 
-      // 生成拆解建议
-      const breakdown = await this.generateBreakdown(
-        taskInfo ? taskInfo.taskName : taskDescription,
-        taskInfo ? taskInfo.taskDesc : null,
-        projectId,
-        context
-      );
+      const [header, tasks] = await Promise.all([
+        getProjectReportHeader(tenantId, resolved.projectId),
+        this.listProjectTasks(tenantId, resolved.projectId),
+      ]);
 
+      if (!header) {
+        return {
+          success: false,
+          output: "项目不存在或无权限查看。",
+          error: "项目不存在",
+          skillId: this.id,
+        };
+      }
+
+      const report = await this.buildProjectAnalysisReport(tenantId, header, tasks);
       return {
         success: true,
-        output: breakdown,
+        output: report,
         skillId: this.id,
         tokensUsed: 0,
       };
     } catch (error) {
-      console.error('任务拆解失败:', error);
+      console.error("项目分析失败:", error);
       return {
         success: false,
-        output: '任务拆解失败，请稍后重试。',
-        error: error instanceof Error ? error.message : '未知错误',
+        output: "项目分析失败，请稍后重试。",
+        error: error instanceof Error ? error.message : "未知错误",
       };
     }
   }
 
-  /**
-   * 从输入中提取任务ID
-   */
-  private extractTaskId(input: string): string | null {
-    const match = input.match(/任务\s*(\d+)/) || input.match(/(\d+)/);
-    return match ? match[1] : null;
-  }
-
-  /**
-   * 从输入中提取任务描述
-   */
-  private extractTaskDescription(input: string): string {
-    // 移除可能的命令前缀
-    const cleaned = input
-      .replace(/^(拆解|分解|拆分|分析)\s*(任务)?\s*/i, '')
-      .replace(/^"|"$/g, '')
-      .trim();
-
-    return cleaned || '未命名任务';
-  }
-
-  /**
-   * 生成任务拆解
-   */
-  private async generateBreakdown(
-    taskName: string,
-    taskDescription: string | null,
-    projectId: bigint | null,
-    context: SkillContext
-  ): Promise<string> {
-    // 分析任务复杂度
-    const complexity = this.analyzeComplexity(taskName, taskDescription);
-
-    // 生成子任务结构
-    const subtasks = this.generateSubtasks(taskName, taskDescription, complexity);
-
-    // 估算工时
-    const timeEstimate = this.estimateTime(complexity, subtasks.length);
-
-    // 生成依赖关系
-    const dependencies = this.identifyDependencies(subtasks);
-
-    // 生成拆解报告
-    return this.formatBreakdownReport(
-      taskName,
-      taskDescription,
-      complexity,
-      subtasks,
-      timeEstimate,
-      dependencies,
-      projectId
-    );
-  }
-
-  /**
-   * 分析任务复杂度
-   */
-  private analyzeComplexity(taskName: string, taskDescription: string | null): 'simple' | 'medium' | 'complex' {
-    const text = (taskDescription || taskName).toLowerCase();
-    let score = 0;
-
-    // 基于关键词的复杂度评估
-    const complexityIndicators = [
-      { words: ['系统', '平台', '架构', '框架', '集成'], weight: 3 },
-      { words: ['模块', '组件', '接口', 'API', '服务'], weight: 2 },
-      { words: ['功能', '特性', '页面', '界面', 'UI'], weight: 1 },
-      { words: ['简单', '基础', '基本', '小的'], weight: -1 },
-    ];
-
-    for (const indicator of complexityIndicators) {
-      for (const word of indicator.words) {
-        if (text.includes(word)) {
-          score += indicator.weight;
-        }
-      }
+  /** 优先把 bizId 当作项目 ID；否则当作任务 ID 反查项目；再尝试从文案中解析项目 ID */
+  private async resolveProjectId(
+    tenantId: string,
+    context: SkillContext,
+    input: string,
+  ): Promise<{ projectId: string; hint?: string }> {
+    const biz = context.bizId?.trim();
+    if (isNumericId(biz)) {
+      const asProject = await getProjectReportHeader(tenantId, biz!);
+      if (asProject) return { projectId: biz! };
+      const task = await prisma.task.findFirst({
+        where: { tenantId, id: toDbId(biz!), delFlag: "0" },
+        select: { projectId: true },
+      });
+      if (task?.projectId != null) return { projectId: String(task.projectId) };
     }
 
-    // 基于长度的评估
-    const length = text.length;
-    if (length > 200) score += 2;
-    else if (length > 100) score += 1;
-    else if (length < 30) score -= 1;
-
-    if (score >= 5) return 'complex';
-    if (score >= 2) return 'medium';
-    return 'simple';
-  }
-
-  /**
-   * 生成子任务
-   */
-  private generateSubtasks(taskName: string, taskDescription: string | null, complexity: string): Array<{
-    id: number;
-    name: string;
-    description: string;
-    estimatedHours: number;
-    dependencies: number[];
-  }> {
-    const subtasks: Array<{
-      id: number;
-      name: string;
-      description: string;
-      estimatedHours: number;
-      dependencies: number[];
-    }> = [];
-
-    // 根据复杂度确定子任务数量
-    let subtaskCount = 3;
-    if (complexity === 'medium') subtaskCount = 5;
-    if (complexity === 'complex') subtaskCount = 8;
-
-    // 常见的任务阶段模板
-    const phases = [
-      { name: '需求分析与澄清', desc: '明确需求细节、验收标准、成功指标' },
-      { name: '方案设计与评审', desc: '制定技术方案、架构设计、评审通过' },
-      { name: '开发实现', desc: '编码、单元测试、代码审查' },
-      { name: '测试验证', desc: '集成测试、系统测试、问题修复' },
-      { name: '部署上线', desc: '环境准备、部署实施、上线验证' },
-      { name: '文档与培训', desc: '编写文档、培训用户、知识转移' },
-      { name: '复盘总结', desc: '项目复盘、经验总结、优化建议' },
-    ];
-
-    // 根据复杂度和任务描述选择阶段
-    const selectedPhases = phases.slice(0, Math.min(subtaskCount, phases.length));
-
-    // 生成子任务
-    selectedPhases.forEach((phase, index) => {
-      const subtaskId = index + 1;
-      const dependencies = index > 0 ? [subtaskId - 1] : [];
-
-      // 估算工时（根据复杂度调整）
-      let estimatedHours = 8; // 默认8小时
-      if (complexity === 'medium') estimatedHours = 16;
-      if (complexity === 'complex') estimatedHours = 24;
-      if (index === 0 || index === selectedPhases.length - 1) estimatedHours = Math.floor(estimatedHours * 0.75); // 首尾阶段稍短
-
-      subtasks.push({
-        id: subtaskId,
-        name: `${phase.name}`,
-        description: `${phase.desc}，针对任务"${taskName}"`,
-        estimatedHours,
-        dependencies,
-      });
-    });
-
-    return subtasks;
-  }
-
-  /**
-   * 估算总工时
-   */
-  private estimateTime(complexity: string, subtaskCount: number): {
-    optimistic: number;
-    realistic: number;
-    pessimistic: number;
-  } {
-    const baseHours = complexity === 'simple' ? 4 : complexity === 'medium' ? 8 : 16;
-    const totalBase = baseHours * subtaskCount;
+    const fromText = input.match(/(?:项目|project)\s*[#＃]?\s*(\d+)/i);
+    if (fromText?.[1] && isNumericId(fromText[1])) {
+      const pid = fromText[1];
+      const h = await getProjectReportHeader(tenantId, pid);
+      if (h) return { projectId: pid };
+    }
 
     return {
-      optimistic: Math.floor(totalBase * 0.8),
-      realistic: totalBase,
-      pessimistic: Math.ceil(totalBase * 1.5),
+      projectId: "",
+      hint: "请先在工作助手中选择「关联项目」，或在说明中写明「项目 数字ID」。",
     };
   }
 
-  /**
-   * 识别依赖关系
-   */
-  private identifyDependencies(subtasks: Array<{ id: number; dependencies: number[] }>): string[] {
-    const dependencies: string[] = [];
-
-    subtasks.forEach(subtask => {
-      if (subtask.dependencies.length > 0) {
-        const deps = subtask.dependencies.map(dep => `子任务${dep}`).join('、');
-        dependencies.push(`子任务${subtask.id} 依赖于 ${deps}`);
-      }
+  private async listProjectTasks(tenantId: string, projectId: string): Promise<TaskRow[]> {
+    return prisma.task.findMany({
+      where: { tenantId, projectId: toDbId(projectId), delFlag: "0" },
+      select: {
+        id: true,
+        taskName: true,
+        taskDesc: true,
+        status: true,
+        progress: true,
+        assigneeUserId: true,
+        dueTime: true,
+        priority: true,
+        riskLevel: true,
+      },
+      orderBy: [{ dueTime: "asc" }, { id: "asc" }],
     });
-
-    return dependencies;
   }
 
-  /**
-   * 格式化拆解报告
-   */
-  private formatBreakdownReport(
-    taskName: string,
-    taskDescription: string | null,
-    complexity: string,
-    subtasks: any[],
-    timeEstimate: any,
-    dependencies: string[],
-    projectId: bigint | null
-  ): string {
-    const complexityMap = {
-      simple: '简单',
-      medium: '中等',
-      complex: '复杂',
-    };
-
-    return `# 任务拆解报告
-
-## 任务概况
-- **任务名称**: ${taskName}
-- **任务描述**: ${taskDescription || '无详细描述'}
-- **复杂度评估**: ${complexityMap[complexity as keyof typeof complexityMap]}
-- **所属项目ID**: ${projectId || '未指定'}
-
-## 子任务分解
-${subtasks.map(subtask => `
-### 子任务${subtask.id}: ${subtask.name}
-- **描述**: ${subtask.description}
-- **预估工时**: ${subtask.estimatedHours} 小时
-- **前置依赖**: ${subtask.dependencies.length > 0 ? subtask.dependencies.map(d => `子任务${d}`).join('、') : '无'}
-`).join('')}
-
-## 工时估算
-- **乐观估算**: ${timeEstimate.optimistic} 小时
-- **现实估算**: ${timeEstimate.realistic} 小时
-- **保守估算**: ${timeEstimate.pessimistic} 小时
-- **建议排期**: ${Math.ceil(timeEstimate.realistic / 8)} 个工作日（按每天8小时计）
-
-## 依赖关系
-${dependencies.length > 0 ? dependencies.map(dep => `- ${dep}`).join('\n') : '无复杂依赖关系'}
-
-## 建议执行顺序
-${this.getExecutionOrder(subtasks)}
-
-## 成功关键因素
-1. 明确每个子任务的验收标准
-2. 定期检查进度，及时调整计划
-3. 确保依赖任务按时完成
-4. 预留缓冲时间应对不确定性
-
-## 一键创建建议
-上述子任务可以一键创建为实际任务，每个子任务将：
-- 继承原任务的租户、项目信息
-- 自动设置依赖关系
-- 分配建议的工时和优先级
-
----
-
-*拆解生成时间: ${new Date().toLocaleString('zh-CN')}*`;
+  private taskRiskLabel(r: string | null): string {
+    const m: Record<string, string> = { "0": "无", "1": "低", "2": "中", "3": "高" };
+    return m[r ?? "0"] ?? "无";
   }
 
-  /**
-   * 获取执行顺序建议
-   */
-  private getExecutionOrder(subtasks: any[]): string {
-    const order: number[] = [];
-    const visited = new Set<number>();
+  /** 任务进度加权：各任务 progress 字段算术平均（无任务时用项目进度） */
+  private weightedProgressPct(tasks: TaskRow[], projectProgress: unknown): number {
+    if (tasks.length === 0) return Number(projectProgress ?? 0);
+    const sum = tasks.reduce((s, t) => s + Number(t.progress ?? 0), 0);
+    return Math.round((sum / tasks.length) * 10) / 10;
+  }
 
-    // 简单的拓扑排序（依赖关系简单）
-    subtasks.forEach(subtask => {
-      if (subtask.dependencies.length === 0) {
-        order.push(subtask.id);
-        visited.add(subtask.id);
-      }
+  private deriveOverallStatus(tasks: TaskRow[], now: Date): "正常" | "延期" | "高风险" {
+    const highRisk = tasks.some((t) => ["2", "3"].includes(t.riskLevel ?? "0"));
+    if (highRisk) return "高风险";
+    const incomplete = (t: TaskRow) => (t.status ?? "") !== "2";
+    const overdue = tasks.filter((t) => incomplete(t) && t.dueTime && t.dueTime.getTime() < now.getTime());
+    const delayedFlag = tasks.some((t) => t.status === "3");
+    if (delayedFlag || overdue.length > 0) return "延期";
+    return "正常";
+  }
+
+  private async buildProjectAnalysisReport(
+    tenantId: string,
+    header: { id: bigint; projectName: string | null; status: string | null; progress: unknown },
+    tasks: TaskRow[],
+  ): Promise<string> {
+    const now = new Date();
+    const in7 = new Date(now);
+    in7.setDate(in7.getDate() + 7);
+    in7.setHours(23, 59, 59, 999);
+
+    const assigneeIds = [...new Set(tasks.map((t) => t.assigneeUserId).filter((x): x is bigint => x != null))];
+    const nickMap = await mapAssigneeNickNames(tenantId, assigneeIds);
+    const nameOf = (uid: bigint | null) =>
+      uid == null ? "未分配" : nickMap.get(uid)?.trim() || `用户${uid}`;
+
+    const c0 = tasks.filter((t) => (t.status ?? "") === "0").length;
+    const c1 = tasks.filter((t) => (t.status ?? "") === "1").length;
+    const c2 = tasks.filter((t) => (t.status ?? "") === "2").length;
+    const c3 = tasks.filter((t) => (t.status ?? "") === "3").length;
+
+    const overdueTasks = tasks.filter(
+      (t) => (t.status ?? "") !== "2" && t.dueTime && t.dueTime.getTime() < now.getTime(),
+    );
+
+    const dueSoonTasks = tasks.filter((t) => {
+      if (!t.dueTime || (t.status ?? "") === "2") return false;
+      const t0 = t.dueTime.getTime();
+      return t0 >= now.getTime() && t0 <= in7.getTime();
     });
 
-    // 第二层
-    subtasks.forEach(subtask => {
-      if (!visited.has(subtask.id) && subtask.dependencies.every((dep: number) => visited.has(dep))) {
-        order.push(subtask.id);
-        visited.add(subtask.id);
-      }
-    });
+    const activeForLoad = tasks.filter((t) => ["0", "1", "3"].includes(t.status ?? ""));
+    const loadByAssignee = new Map<string, number>();
+    for (const t of activeForLoad) {
+      const key = nameOf(t.assigneeUserId);
+      loadByAssignee.set(key, (loadByAssignee.get(key) ?? 0) + 1);
+    }
+    const OVERLOAD_THRESHOLD = 8;
+    const overloaded = [...loadByAssignee.entries()].filter(([, n]) => n >= OVERLOAD_THRESHOLD);
 
-    // 剩余
-    subtasks.forEach(subtask => {
-      if (!visited.has(subtask.id)) {
-        order.push(subtask.id);
-      }
-    });
+    const pct = this.weightedProgressPct(tasks, header.progress);
+    const overall = this.deriveOverallStatus(tasks, now);
+    const projectName = header.projectName?.trim() || `项目 ${header.id}`;
 
-    return order.map(id => `子任务${id}`).join(' → ');
+    const lines: string[] = [];
+    lines.push(`# 项目分析报告`);
+    lines.push(``);
+    lines.push(`## 项目概览`);
+    lines.push(`- **项目名称**：${projectName}（ID: ${header.id}）`);
+    lines.push(`- **整体进度**：${pct}%（按任务进度百分比算术平均）`);
+    lines.push(`- **当前状态**：${overall}`);
+    lines.push(``);
+    lines.push(`## 任务状态分布`);
+    lines.push(`- 待开始：${c0}`);
+    lines.push(`- 进行中：${c1}`);
+    lines.push(`- 已完成：${c2}`);
+    lines.push(`- 已延期：${c3}`);
+    lines.push(``);
+
+    lines.push(`## 延期风险任务`);
+    if (overdueTasks.length === 0) {
+      lines.push(`- 当前无「已过期未完成」任务。`);
+    } else {
+      for (const t of overdueTasks) {
+        const due = t.dueTime ? t.dueTime.toISOString().slice(0, 10) : "未设置";
+        const reason = t.taskDesc?.trim() ? t.taskDesc.trim().slice(0, 200) : "未在任务描述中说明";
+        lines.push(
+          `- **${t.taskName ?? `任务 ${t.id}`}**（ID ${t.id}）｜负责人 ${nameOf(t.assigneeUserId)}｜截止 ${due}｜状态 ${toTaskStatus(t.status)}｜延期说明：${reason}`,
+        );
+      }
+    }
+    lines.push(``);
+
+    lines.push(`## 本周/下周到期任务（未来 7 天内截止，且未完成）`);
+    if (dueSoonTasks.length === 0) {
+      lines.push(`- 无。`);
+    } else {
+      for (const t of dueSoonTasks) {
+        const due = t.dueTime ? t.dueTime.toISOString().slice(0, 10) : "未设置";
+        lines.push(
+          `- **${t.taskName ?? `任务 ${t.id}`}**（ID ${t.id}）｜${toTaskStatus(t.status)}｜进度 ${Number(t.progress ?? 0).toFixed(0)}%｜负责人 ${nameOf(t.assigneeUserId)}｜截止 ${due}｜优先级 ${toTaskPriorityLabel(t.priority)}｜风险 ${this.taskRiskLabel(t.riskLevel)}`,
+        );
+      }
+    }
+    lines.push(``);
+
+    lines.push(`## 资源负载（未完成任务按负责人统计）`);
+    if (loadByAssignee.size === 0) {
+      lines.push(`- 无未完成任务。`);
+    } else {
+      const sorted = [...loadByAssignee.entries()].sort((a, b) => b[1] - a[1]);
+      for (const [name, n] of sorted) {
+        lines.push(`- ${name}：${n} 项`);
+      }
+      if (overloaded.length > 0) {
+        lines.push(
+          `- **提示**：${overloaded.map(([n, c]) => `${n}（${c} 项）`).join("、")} 未完成任务较多（≥${OVERLOAD_THRESHOLD}），建议评估分工与优先级。`,
+        );
+      }
+    }
+    lines.push(``);
+
+    lines.push(`## 建议`);
+    const tips: string[] = [];
+    if (overdueTasks.length > 0) {
+      tips.push(`优先消化 ${overdueTasks.length} 条已过期未完成项：与负责人确认新截止日与阻塞原因，并在任务描述中补充说明。`);
+    }
+    if (dueSoonTasks.length > 0) {
+      tips.push(`未来 7 日内有 ${dueSoonTasks.length} 条待交付任务，建议每日同步进度并提前暴露依赖风险。`);
+    }
+    if (overloaded.length > 0) {
+      tips.push(`关注高负载负责人，适当拆解任务或调整排期，避免单点过载。`);
+    }
+    if (tips.length === 0) {
+      tips.push(`当前任务节奏与负载整体平稳，可继续按里程碑推进，并保持周度同步。`);
+    }
+    lines.push(...tips.slice(0, 2).map((t, i) => `${i + 1}. ${t}`));
+    lines.push(``);
+    lines.push(`---`);
+    lines.push(`*报告生成时间: ${new Date().toLocaleString("zh-CN")}*`);
+
+    return lines.join("\n");
   }
 }

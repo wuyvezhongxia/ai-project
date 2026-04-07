@@ -179,28 +179,20 @@ export const weeklyReport = async (req: AuthedRequest, res: Response): Promise<v
   );
 };
 
-// 任务拆解
+// 项目分析（API 路径仍为 task-breakdown）
 export const taskBreakdown = async (req: AuthedRequest, res: Response): Promise<void> => {
   await handleAiRequest(req, res, "task_breakdown", (params, ctx) =>
     aiService.breakdownTask(params as SkillParams, ctx)
   );
 };
 
-// 风险分析
+// 批量调整（预览：不落库，执行请在对话中确认）
 export const delayAnalysis = async (req: AuthedRequest, res: Response): Promise<void> => {
-  await handleAiRequest(req, res, "risk_analysis", (params, ctx) =>
-    aiService.analyzeRisk(params as SkillParams, ctx)
+  await handleAiRequest(req, res, "batch_adjust_preview", (params, ctx) =>
+    aiService.previewBatchAdjust(params as SkillParams, ctx)
   );
 };
 
-// 项目进度（暂时使用通用聊天）
-export const projectProgress = async (req: AuthedRequest, res: Response): Promise<void> => {
-  await handleAiRequest(req, res, "project_progress", (params, ctx) =>
-    aiService.chat(params as ChatParams, ctx)
-  );
-};
-
-// 任务洞察（暂时使用通用聊天）
 export const taskInsight = async (req: AuthedRequest, res: Response): Promise<void> => {
   await handleAiRequest(req, res, "task_insight", (params, ctx) =>
     aiService.generateTaskInsight(params as SkillParams, ctx)

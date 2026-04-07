@@ -5,12 +5,14 @@ import { SkillRegistry } from './skill.registry';
 import { getLLMManager } from '../llms/llm.manager';
 import { getMemoryManager } from '../memory/memory.manager';
 import { getToolRegistry } from '../tools/tool.registry';
+import { toolRunnableConfigFromEnhancedContext } from '../tools/query-tools/enhanced-context-from-config';
 import type { ISkill, SkillParams, SkillContext, SkillResult, AgentContext, AgentResult } from './skill.types';
+import { skillUserInputSchema } from './skill-input.schema';
 
 // Skill实现导入
 import { WeeklyReportSkill } from './implementations/analysis/weekly-report.skill';
 import { WeeklyReportStreamingSkill } from './implementations/analysis/weekly-report-streaming.skill';
-import { RiskAnalysisSkill } from './implementations/analysis/risk-analysis.skill';
+import { BatchAdjustSkill } from './implementations/automation/batch-adjust.skill';
 import { TaskBreakdownSkill } from './implementations/generation/task-breakdown.skill';
 
 /**
@@ -32,59 +34,27 @@ export class SkillRouterAgent {
     // 注册核心Skill
     this.registerSkill(new WeeklyReportSkill());
     this.registerSkill(new WeeklyReportStreamingSkill());
-    this.registerSkill(new RiskAnalysisSkill());
+    this.registerSkill(new BatchAdjustSkill());
     this.registerSkill(new TaskBreakdownSkill());
 
+    this.skillRegistry.assertAllRegisteredSkillsMetadata();
     console.log('Skill路由器初始化完成，已注册', this.skillRegistry.getStats().enabled, '个Skill');
   }
 
   /**
-   * 路由并执行用户请求
+   * 兼容入口：具名 Skill 仅由结构化路由（LLM JSON）经 runSkillById 触发；此处不再做关键词匹配，直接走通用代理（LangChain + 工具）。
    */
-  async routeAndExecute(
-    userInput: string,
-    context: AgentContext
-  ): Promise<AgentResult> {
+  async routeAndExecute(userInput: string, context: AgentContext): Promise<AgentResult> {
     try {
-      // 1. 意图识别
-      const intent = await this.identifyIntent(userInput, context);
-
-      // 2. Skill发现
-      const skill = this.skillRegistry.discoverSkill(intent, {
-        userId: context.userId,
-        tenantId: context.tenantId,
-        conversationHistory: context.history,
-      });
-
-      if (skill) {
-        // 3. 执行预定义Skill
-        console.log(`执行Skill: ${skill.name} (${skill.id})`);
-        return await this.executeSkill(skill, {
-          input: userInput,
-          ...context,
-        });
-      } else {
-        // 4. 通用代理模式（动态组合Tools）
-        console.log('使用通用代理处理');
-        return await this.generalAgent(userInput, context);
-      }
+      return await this.generalAgent(userInput, context);
     } catch (error) {
-      console.error('Skill路由执行失败:', error);
+      console.error("Skill路由执行失败:", error);
       return {
         success: false,
-        output: 'AI处理失败，请稍后重试。',
-        error: error instanceof Error ? error.message : '未知错误',
+        output: "AI处理失败，请稍后重试。",
+        error: error instanceof Error ? error.message : "未知错误",
       };
     }
-  }
-
-  /**
-   * 意图识别
-   */
-  private async identifyIntent(userInput: string, _context: AgentContext): Promise<string> {
-    // 简化实现：返回用户输入作为意图
-    // 实际项目中可以使用LLM进行意图分类
-    return userInput;
   }
 
   /**
@@ -111,6 +81,10 @@ export class SkillRouterAgent {
         sessionId: params.sessionId,
         conversationHistory: params.conversationHistory,
         onToken: params.onToken,
+        bizId: params.bizId,
+        queuePendingConfirm: params.queuePendingConfirm,
+        roleIds: params.roleIds,
+        deptId: params.deptId,
       });
 
       // 更新记忆
@@ -139,6 +113,43 @@ export class SkillRouterAgent {
         error: error instanceof Error ? error.message : '未知错误',
       };
     }
+  }
+
+  /** 结构化路由：仅走通用工具代理（跳过关键词 Skill） */
+  async runGeneralAgent(userInput: string, context: AgentContext): Promise<AgentResult> {
+    return this.generalAgent(userInput, context);
+  }
+
+  /** 按 skill_id 执行（用于 JSON 路由）；未注册或未启用时返回 null */
+  async runSkillById(
+    skillId: string,
+    userInput: string,
+    context: AgentContext,
+  ): Promise<AgentResult | null> {
+    const inputParsed = skillUserInputSchema.safeParse(userInput);
+    if (!inputParsed.success) {
+      return {
+        success: false,
+        output: inputParsed.error.issues[0]?.message ?? "输入无效",
+        error: "INVALID_SKILL_INPUT",
+      };
+    }
+    const safeInput = inputParsed.data;
+    if (!this.skillRegistry.isSkillEnabled(skillId)) return null;
+    const skill = this.skillRegistry.getSkill(skillId);
+    if (!skill) return null;
+    return this.executeSkill(skill, {
+      input: safeInput,
+      userId: context.userId,
+      tenantId: context.tenantId,
+      sessionId: context.sessionId,
+      conversationHistory: context.history ?? [],
+      onToken: context.onToken,
+      bizId: typeof context.bizId === "string" ? context.bizId : undefined,
+      queuePendingConfirm: context.queuePendingConfirm,
+      roleIds: context.roleIds,
+      deptId: context.deptId,
+    });
   }
 
   /**
@@ -340,7 +351,15 @@ ${toolDescriptions}
 
         try {
           const toolStartTime = Date.now();
-          const toolResult = await tool.invoke(toolArgs, context);
+          const toolResult = await tool.invoke(
+            toolArgs,
+            toolRunnableConfigFromEnhancedContext({
+              userId: context.userId,
+              tenantId: context.tenantId,
+              sessionId: context.sessionId,
+              tenantFilter: context.tenantFilter ?? { tenantId: context.tenantId },
+            })
+          );
           const toolDuration = Date.now() - toolStartTime;
 
           toolCalls.push({
@@ -390,56 +409,13 @@ ${toolDescriptions}
   /**
    * 规则引擎回退（当LLM不可用时使用）
    */
-  private fallbackToRuleEngine(
-    userInput: string,
-    _context: AgentContext
-  ): AgentResult {
-    const lowerInput = userInput.toLowerCase();
-
-    // 简单规则匹配
-    if (lowerInput.includes('项目') && (lowerInput.includes('多少') || lowerInput.includes('几个'))) {
-      return {
-        success: true,
-        output: '你可以使用系统的项目查询功能查看具体项目数量。当前会话中未指定具体项目范围。',
-        skillUsed: 'rule_engine',
-      };
-    }
-
-    if (lowerInput.includes('任务') && lowerInput.includes('状态')) {
-      return {
-        success: true,
-        output: '任务状态包括：待开始、进行中、已完成、延期。您可以通过任务列表查看具体任务状态。',
-        skillUsed: 'rule_engine',
-      };
-    }
-
-    if (lowerInput.includes('风险') || lowerInput.includes('延期')) {
-      return {
-        success: true,
-        output: '风险分析需要具体任务ID。您可以打开任务详情，使用"风险分析"快捷功能。',
-        skillUsed: 'rule_engine',
-      };
-    }
-
-    if (lowerInput.includes('周报') || lowerInput.includes('报告')) {
-      return {
-        success: true,
-        output: '周报生成需要项目ID。请在AI助手面板顶部选择关联项目，然后点击"生成周报"按钮。',
-        skillUsed: 'rule_engine',
-      };
-    }
-
-    // 默认回复
+  private fallbackToRuleEngine(userInput: string, _context: AgentContext): AgentResult {
     return {
       success: true,
-      output: `已收到您的查询："${userInput}"。当前AI功能基于规则引擎，建议使用以下快捷功能：
-1. 生成周报 - 需要选择关联项目
-2. 风险分析 - 需要在任务详情页使用
-3. 任务拆解 - 描述任务即可获得拆解建议
-4. 项目进度 - 需要选择关联项目
-
-或者，请配置DeepSeek API密钥以启用智能对话功能。`,
-      skillUsed: 'rule_engine',
+      output:
+        `已收到：「${userInput}」。当前未配置可用的对话模型，无法使用智能路由与工具。\n` +
+        `请在环境变量中配置 DEEPSEEK_API_KEY 后重试；具名技能（周报、批量调整、项目分析等）由结构化 LLM 根据技能目录自动选择。`,
+      skillUsed: "rule_engine",
     };
   }
 

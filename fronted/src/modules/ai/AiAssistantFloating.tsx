@@ -25,10 +25,25 @@ import { useWorkspaceStore } from '../workspace/store/workspace-store'
 import { buildMemberMentionOptions } from '../workspace/utils/member-mentions'
 
 const QUICK_SKILLS: Array<{ key: string; label: string; intent: AiIntent; prompt: string }> = [
-  { key: 'weekly', label: '生成周报', intent: 'weekly', prompt: '请为本项目生成本周工作周报草稿。' },
-  { key: 'breakdown', label: '任务拆解', intent: 'breakdown', prompt: '请把当前重点任务拆解为可执行的子步骤。' },
-  { key: 'risk', label: '延期风险', intent: 'risk', prompt: '请分析当前任务的延期风险并给出可执行建议。' },
-  { key: 'progress', label: '项目进度', intent: 'progress', prompt: '请总结当前项目的进度、风险与下周建议。' },
+  {
+    key: 'weekly',
+    label: '生成周报',
+    intent: 'weekly',
+    prompt:
+      '生成本周工作周报草稿：请覆盖本周租户内所有项目，逐个项目列出任务的完成情况（待开始/进行中/已完成/延期等），并给出下周可执行的工作建议。',
+  },
+  {
+    key: 'breakdown',
+    label: '项目分析',
+    intent: 'breakdown',
+    prompt: '分析关联项目——显示此项目的任务完成情况、风险等。',
+  },
+  {
+    key: 'batchAdjust',
+    label: '批量调整',
+    intent: 'batchAdjust',
+    prompt: '将所有「待开始」任务改为「进行中」。',
+  },
 ]
 
 type AiAssistantFloatingProps = {
@@ -651,7 +666,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
                 type="button"
                 className="pm-ai-chip"
                 onClick={() => {
-                  if (q.intent === 'weekly' || q.intent === 'progress') {
+                  if (q.intent === 'batchAdjust') {
                     if (!defaultProjectId) {
                       message.warning('请先选择关联项目')
                       return

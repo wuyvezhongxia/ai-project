@@ -95,9 +95,8 @@ function DashboardPage() {
   const recentAssistantMessages = liveMessages.length > 0 ? liveMessages : persistedMessages
   const previewSkills: Array<{ key: string; label: string; className: string }> = [
     { key: 'weekly', label: '生成周报', className: 'dashboard-ai-preview-skill--weekly' },
-    { key: 'breakdown', label: '任务拆解', className: 'dashboard-ai-preview-skill--breakdown' },
-    { key: 'risk', label: '延期风险', className: 'dashboard-ai-preview-skill--risk' },
-    { key: 'progress', label: '项目进度', className: 'dashboard-ai-preview-skill--progress' },
+    { key: 'breakdown', label: '项目分析', className: 'dashboard-ai-preview-skill--breakdown' },
+    { key: 'batchAdjust', label: '批量调整', className: 'dashboard-ai-preview-skill--risk' },
   ]
 
   const resolvedStatCards = [
@@ -219,7 +218,7 @@ function DashboardPage() {
 
           <Card
             className="glass-card"
-            title="延期风险任务"
+            title="延期任务"
             extra={
               <Tag className="section-chip" color="error">
                 AI 提醒
@@ -299,7 +298,7 @@ function DashboardPage() {
                   </div>
                 ) : (
                   <p className="dashboard-ai-hint">
-                    你好，我是智能工作助手。你还没有聊天记录，点击「打开助手」即可开始，我可以帮你做周报、任务拆解、延期风险和项目进度分析。
+                    你好，我是智能工作助手。你还没有聊天记录，点击「打开助手」即可开始，我可以帮你做周报、项目分析和批量调整。
                   </p>
                 )}
 

@@ -14,8 +14,8 @@ type SkillPromptLike = {
  * Skill分类
  */
 export enum SkillCategory {
-  ANALYSIS = "analysis",      // 分析类：周报、风险分析
-  GENERATION = "generation",  // 生成类：任务拆解、文档生成
+  ANALYSIS = "analysis",      // 分析类：周报等
+  GENERATION = "generation",  // 生成类：项目分析、文档生成
   AUTOMATION = "automation",  // 自动化：批量操作、定时任务
   CUSTOM = "custom",          // 自定义Skill
 }
@@ -29,6 +29,13 @@ export interface SkillContext {
   sessionId?: string;
   conversationHistory?: Array<{ role: string; content: string }>;
   onToken?: (token: string) => void;
+  /** 来自对话请求（如 chat 的 bizId）：项目页多为项目 ID，任务页多为任务 ID，供 Skill 作默认作用对象 */
+  bizId?: string;
+  /** 与鉴权上下文一致，供 canManageTask 等使用 */
+  roleIds?: string[];
+  deptId?: string;
+  /** 将写操作挂到当前用户的待确认队列（对话内回复「确认」后执行） */
+  queuePendingConfirm?: (action: string, params: Record<string, unknown>) => void;
   [key: string]: any;
 }
 
@@ -98,16 +105,6 @@ export interface SkillRegistrationOptions {
 }
 
 /**
- * Skill发现上下文
- */
-export interface SkillDiscoveryContext {
-  userId: string;
-  tenantId: string;
-  conversationHistory?: Array<{ role: string; content: string }>;
-  availableSkills?: string[];  // 用户可用的Skill列表
-}
-
-/**
  * Agent上下文
  */
 export interface AgentContext {
@@ -116,6 +113,11 @@ export interface AgentContext {
   sessionId: string;
   history?: Array<{ role: string; content: string }>;
   onToken?: (token: string) => void;
+  /** 与 ChatParams.bizId 一致，由前端传入当前项目/任务上下文 */
+  bizId?: string;
+  roleIds?: string[];
+  deptId?: string;
+  queuePendingConfirm?: (action: string, params: Record<string, unknown>) => void;
   [key: string]: any;
 }
 
