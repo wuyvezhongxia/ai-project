@@ -229,6 +229,26 @@ export const useCreateProjectMutation = () => {
   })
 }
 
+export const useDeleteProjectMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (projectId: string) => workspaceApi.deleteProject(projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectOptions })
+      void queryClient.invalidateQueries({ queryKey: ['project-tasks'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-gantt'] })
+      void queryClient.invalidateQueries({ queryKey: ['project-stats'] })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.dashboard })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.mustDoToday })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.riskTasks })
+      void queryClient.invalidateQueries({ queryKey: ['todo-list'] })
+      void queryClient.invalidateQueries({ queryKey: ['todo-kanban'] })
+    },
+  })
+}
+
 export const useUpdateTaskMutation = () => {
   const queryClient = useQueryClient()
 

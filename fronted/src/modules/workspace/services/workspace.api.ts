@@ -274,6 +274,10 @@ export const workspaceApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  deleteProject: (projectId: string) =>
+    apiRequest(`/api/projects/${projectId}`, {
+      method: 'DELETE',
+    }),
 
   getUserOptions: () => apiRequest<ApiUserOption[]>('/api/org/users/options'),
 

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Avatar, Button, Card, Dropdown, Empty, Progress, Space, Spin, Tag } from 'antd'
+import { Avatar, Button, Card, Dropdown, Empty, Popconfirm, Progress, Space, Spin, Tag, message } from 'antd'
 import type { MenuProps } from 'antd'
-import { AppstoreOutlined, BarChartOutlined, DownOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BarChartOutlined, DeleteOutlined, DownOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import { useOutletContext } from 'react-router-dom'
@@ -13,6 +13,7 @@ import { useAiAssistantStore } from '../../ai/ai-assistant.store'
 import { getPriorityColor, getStatusColor } from '../../workspace/utils/task-ui'
 import { getAvatarLabel, getAvatarSeed, getAvatarStyle, getNeutralAvatarStyle } from '../../workspace/utils/avatar'
 import {
+  useDeleteProjectMutation,
   useProjectsQuery,
   useProjectStatisticsQuery,
   useProjectTasksQuery,
@@ -85,6 +86,7 @@ function ProjectsPage() {
   const [projectStatusTab, setProjectStatusTab] = useState('全部项目')
   const [projectFilter, setProjectFilter] = useState('all')
   const [projectView, setProjectView] = useState<ProjectView>('kanban')
+  const deleteProjectMutation = useDeleteProjectMutation()
   const { data: projectCards = [], isLoading: loadingProjects } = useProjectsQuery(projectStatusTab)
   const [activeProjectId, setActiveProjectId] = useState('')
   const visibleProjectCards = useMemo(() => {
@@ -213,6 +215,19 @@ function ProjectsPage() {
     [resolvedProjectStats],
   )
   const projectFilterLabel = projectFilter === 'risk' ? '有风险' : projectFilter === 'delay' ? '有延期' : '全部项目'
+  const handleDeleteProject = async () => {
+    if (!activeProject?.id) return
+    try {
+      await deleteProjectMutation.mutateAsync(activeProject.id)
+      message.success(`已删除项目：${activeProject.name}`)
+      if (defaultProjectId === activeProject.id) {
+        setDefaultProjectId('')
+      }
+      setActiveProjectId('')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除项目失败，请稍后重试')
+    }
+  }
   const filterMenu = useMemo<MenuProps>(
     () => ({
       selectable: true,
@@ -388,25 +403,39 @@ function ProjectsPage() {
           className="glass-card project-detail-surface"
           title={`${activeProject.name} · 任务视图`}
           extra={
-            <div className="project-view-switch" role="tablist" aria-label="项目视图切换">
-              {[
-                { label: '列表', value: 'list', icon: <UnorderedListOutlined /> },
-                { label: '看板', value: 'kanban', icon: <AppstoreOutlined /> },
-                { label: '统计', value: 'stats', icon: <BarChartOutlined /> },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={projectView === item.value}
-                  className={projectView === item.value ? 'project-view-switch-button project-view-switch-button-active' : 'project-view-switch-button'}
-                  onClick={() => setProjectView(item.value as ProjectView)}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
+            <Space size={12}>
+              <div className="project-view-switch" role="tablist" aria-label="项目视图切换">
+                {[
+                  { label: '列表', value: 'list', icon: <UnorderedListOutlined /> },
+                  { label: '看板', value: 'kanban', icon: <AppstoreOutlined /> },
+                  { label: '统计', value: 'stats', icon: <BarChartOutlined /> },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={projectView === item.value}
+                    className={projectView === item.value ? 'project-view-switch-button project-view-switch-button-active' : 'project-view-switch-button'}
+                    onClick={() => setProjectView(item.value as ProjectView)}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <Popconfirm
+                title="删除项目"
+                description="将删除项目及其任务数据，此操作不可恢复。"
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true, loading: deleteProjectMutation.isPending }}
+                onConfirm={handleDeleteProject}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleteProjectMutation.isPending}>
+                  删除项目
+                </Button>
+              </Popconfirm>
+            </Space>
           }
         >
           {projectView === 'kanban' ? (

@@ -295,16 +295,85 @@ export const projectService = {
     const project = toProject(row);
     ensureProjectManager(ctx, project);
 
-    const taskCount = await prisma.task.count({
-      where: { tenantId: ctx.tenantId, projectId: toDbId(id), delFlag: "0" },
-    });
-    if (taskCount > 0) {
-      throw new AppError("Project still contains active tasks", 400);
-    }
+    const projectId = toDbId(id);
+    const userId = toDbId(ctx.userId);
+    const updatedAt = now();
+    await prisma.$transaction(async (tx) => {
+      const taskRows = await tx.task.findMany({
+        where: { tenantId: ctx.tenantId, projectId, delFlag: "0" },
+        select: { id: true },
+      });
+      const taskIds = taskRows.map((item) => item.id);
 
-    await prisma.project.update({
-      where: { id: toDbId(id) },
-      data: { delFlag: "1", updateBy: toDbId(ctx.userId), updateTime: now() },
+      await tx.project.update({
+        where: { id: projectId },
+        data: { delFlag: "1", updateBy: userId, updateTime: updatedAt },
+      });
+
+      await tx.projectMember.updateMany({
+        where: { tenantId: ctx.tenantId, projectId, delFlag: "0" },
+        data: { delFlag: "1" },
+      });
+
+      const styleTableRows = await tx.$queryRaw<Array<{ exists: boolean }>>`
+        select exists(
+          select 1
+          from information_schema.tables
+          where table_schema = 'public'
+            and table_name = 'pm_project_style'
+        ) as "exists"
+      `;
+      if (styleTableRows[0]?.exists) {
+        await tx.projectStyle.updateMany({
+          where: { tenantId: ctx.tenantId, projectId, delFlag: "0" },
+          data: { delFlag: "1", updateBy: userId, updateTime: updatedAt },
+        });
+      }
+
+      await tx.projectTagRel.deleteMany({
+        where: { tenantId: ctx.tenantId, projectId },
+      });
+
+      if (taskIds.length > 0) {
+        await tx.task.updateMany({
+          where: { tenantId: ctx.tenantId, id: { in: taskIds }, delFlag: "0" },
+          data: { delFlag: "1", updateBy: userId, updateTime: updatedAt },
+        });
+
+        await tx.subtask.updateMany({
+          where: { tenantId: ctx.tenantId, taskId: { in: taskIds }, delFlag: "0" },
+          data: { delFlag: "1", updateBy: userId, updateTime: updatedAt },
+        });
+
+        await tx.taskComment.updateMany({
+          where: { tenantId: ctx.tenantId, taskId: { in: taskIds }, delFlag: "0" },
+          data: { delFlag: "1" },
+        });
+
+        await tx.taskCollaborator.updateMany({
+          where: { tenantId: ctx.tenantId, taskId: { in: taskIds }, delFlag: "0" },
+          data: { delFlag: "1" },
+        });
+
+        await tx.taskAttachmentRel.deleteMany({
+          where: { tenantId: ctx.tenantId, taskId: { in: taskIds } },
+        });
+
+        await tx.taskTagRel.deleteMany({
+          where: { tenantId: ctx.tenantId, taskId: { in: taskIds } },
+        });
+
+        await tx.taskRelation.deleteMany({
+          where: {
+            tenantId: ctx.tenantId,
+            OR: [{ fromTaskId: { in: taskIds } }, { toTaskId: { in: taskIds } }],
+          },
+        });
+
+        await tx.taskActivity.deleteMany({
+          where: { tenantId: ctx.tenantId, taskId: { in: taskIds } },
+        });
+      }
     });
     return { success: true };
   },
