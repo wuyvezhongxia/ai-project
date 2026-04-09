@@ -25,6 +25,10 @@ const aiHistoryQuerySchema = z.object({
 
 // 创建AI服务实例
 const aiService = new AiService();
+const AI_BIZ_TYPE_MAX_LEN = 30;
+
+const normalizeBizType = (bizType: string): string =>
+  bizType.length <= AI_BIZ_TYPE_MAX_LEN ? bizType : bizType.slice(0, AI_BIZ_TYPE_MAX_LEN);
 
 // 创建AI记录
 const createAiRecord = async (
@@ -40,7 +44,7 @@ const createAiRecord = async (
   const row = await prisma.aiRecord.create({
     data: {
       tenantId: req.ctx.tenantId,
-      bizType,
+      bizType: normalizeBizType(bizType),
       bizId: bizId ? toDbId(bizId) : null,
       inputText,
       outputText,
