@@ -161,12 +161,12 @@ function DashboardPage() {
             title="今日必须完成"
             extra={
               <Space>
-                <Tag className="section-chip" color="processing">
+                {/* <Tag className="section-chip" color="processing">
                   AI 推荐
                 </Tag>
                 <Button type="link" className="section-link-button">
                   查看全部
-                </Button>
+                </Button> */}
               </Space>
             }
           >
@@ -219,11 +219,11 @@ function DashboardPage() {
           <Card
             className="glass-card"
             title="延期任务"
-            extra={
-              <Tag className="section-chip" color="error">
-                AI 提醒
-              </Tag>
-            }
+            // extra={
+            //   <Tag className="section-chip" color="error">
+            //     AI 提醒
+            //   </Tag>
+            // }
           >
             <List
               className="risk-panel-list"

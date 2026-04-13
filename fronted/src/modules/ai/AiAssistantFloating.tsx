@@ -729,14 +729,14 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
                     <PaperClipOutlined />
                     工作上下文
                   </button>
-                  <button
+                  {/* <button
                     type="button"
                     className={`pm-ai-pill${deepThink ? ' pm-ai-pill--on' : ''}`}
                     onClick={() => setDeepThink(!deepThink)}
                   >
                     <BulbOutlined />
                     深度思考
-                  </button>
+                  </button> */}
                 </div>
                 <Tooltip title="发送">
                   <button
