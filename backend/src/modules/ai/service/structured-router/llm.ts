@@ -1,7 +1,11 @@
 import { env } from "../../../../config/env";
+//判断是否有真实大语言模型以及结构化路由功能是否开启
 import { hasRealLlm, isStructuredRoutingEnabled } from "../../core/ai.meta";
+// 调用 DeepSeek 的 Chat AP
 import { postDeepSeekChatCompletions } from "../deepseek-api";
+// 定义和校验结构化路由结果的数据结构与类型
 import { StructuredRouterResultSchema, type StructuredRouterResult } from "./schema";
+// 标准化结构化路由的输入数据。
 import { normalizeStructuredRouterPayload } from "./synthetic";
 
 function stripJsonFence(raw: string): string {
@@ -10,6 +14,10 @@ function stripJsonFence(raw: string): string {
   return fence?.[1]?.trim() ?? t;
 }
 
+// 该函数用于生成一个系统提示词（system prompt），指导大模型作为项目管理 AI 的“路由器”如何根据用户输入按规则输出规范化的 JSON 路由对象，内容会根据传入的技能目录 skillCatalog 自动插入可用技能说明。
+// op 字段限定只能用文中列出的 10 种操作（如删任务、改状态、创建等），不可乱填。
+// 如果 op 为 pending_resolve，args 内只能有 decision，且只能取 confirm 或 cancel，不准用中文 key。其他操作的 args，只能包含文中列举的英文 key（如 task_id, status, project_name 等），不得新增或用中文
+// 这样保证结构化路由落到 operation 时，格式可控、易于后端解析，也防止误填或非预期指令
 function buildSystemPrompt(skillCatalog: string): string {
   return `你是项目管理 AI 的路由器。根据用户最新一句话（及简短上下文提示），输出且仅输出一个 JSON 对象（不要 markdown）。
 

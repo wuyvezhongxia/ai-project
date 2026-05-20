@@ -57,6 +57,7 @@ async function executePendingResolve(
   };
 }
 
+//创建项目
 async function tryDirectCreate(
   host: AiChatHost,
   state: ChatTurnState,

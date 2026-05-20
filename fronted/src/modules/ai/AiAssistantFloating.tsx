@@ -769,6 +769,7 @@ function AiAssistantFloating({ docked = false, fabOnly = false, hideFab = false 
         okText="确认执行"
         cancelText="取消"
         destroyOnClose
+        zIndex={1400}
       >
         {confirmationData ? (
           <div className="pm-ai-confirm">
